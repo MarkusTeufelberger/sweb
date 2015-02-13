@@ -8,14 +8,8 @@
 *	platform/arm/broadcom2835.c contains code for the broadcom2835 chip, used 
 *	in the Raspberry Pi. Compiled conditionally on LIB_BCM2835=1.
 ******************************************************************************/
-#include <configuration.h>
 #include <platform/platform.h>
 #include <usb_types.h>
-
-void Bcm2835Load()
-{
-	LOG_DEBUG("CSUD: Broadcom2835 driver version 0.1.\n");
-}
 
 #ifndef TYPE_DRIVER
 
@@ -26,7 +20,7 @@ void MicroDelay(u32 delay) {
 	while (*timeStamp < stop)
 	{
 		for (uint32 i = 0; i < 10000; ++i);
-		if (timeStamp != 0x90003004)
+		if (timeStamp != (u64*)0x90003004)
 		{
 		  LOG_DEBUGF("timeStamp != 0x90003004!!!\n",0);
 		  while(1);

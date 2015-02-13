@@ -17,19 +17,15 @@
 // along with this program; if not, write to the Free Software
 // Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
-
-/**
- * CVS Log Info for $RCSfile: syscall.h,v $
- *
- * $Id: syscall.h,v 1.1 2005/09/20 14:40:54 aniederl Exp $
- * $Log$
- */
-
-
 #ifndef syscall_h___
 #define syscall_h___
 
 #include "types.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 
 /**
  * Low-level syscall function, takes 6 arguments where the first is the syscall
@@ -40,6 +36,10 @@
  */
 extern size_t __syscall(size_t arg1, size_t arg2, size_t arg3, size_t arg4, size_t arg5,
                         size_t arg6);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // syscall_h___
 

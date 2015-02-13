@@ -6,15 +6,13 @@
 #define SCHEDULER_H__
 
 #include "types.h"
-#include "SpinLock.h"
-#include "Mutex.h"
-#include <ustl/ulist.h>
+#include <ulist.h>
+#include "IdleThread.h"
+#include "CleanupThread.h"
 
 class Thread;
-class ArchThreadInfo;
-
-extern ArchThreadInfo *currentThreadInfo;
-extern Thread *currentThread;
+class Mutex;
+class SpinLock;
 
 
 /**
@@ -46,13 +44,9 @@ class Scheduler
     void addNewThread ( Thread *thread );
 
     /**
-     * removes the currently active Thread from the scheduling list
-     * this method has actually no use right now and should propably not be used
-     * if you want to keep a thread from being scheduled use sleep() instead
-     * if you want to remove a thread permanently use Thread::kill() instead
-     * you can't remove the last thread
+     * Tells the scheduler that there is a thread that has been killed (adds cleanup job)
      */
-    void removeCurrentThread();
+    void invokeCleanup();
 
     /**
      * puts the currentThread to sleep and keeps it from being scheduled
@@ -81,6 +75,11 @@ class Scheduler
     void printStackTraces();
 
     /**
+     * schedules all currently known userspace threads to print a stack trace
+     */
+    void printUserSpaceTraces();
+
+    /**
      * it is somewhat of a hack, we need to release the Spinlock,
      * after we set the ThreadState Sleeping, but before we yield away
      * also we must not be interrupted and we want to avoid disabling Interrupts
@@ -94,26 +93,6 @@ class Scheduler
      * @param &lock the Mutex we want to release
      */
     void sleepAndRelease ( Mutex &lock );
-
-    /**
-     * yet another hack. Nelle's BD Driver needs to switch off Interrupts
-     * and put Threads to sleep.
-     * In order to avoid getting a wakeup before we put the Thread to sleep
-     * we need to first sleep and _then_ enable Interrupts
-     * Ohhh the Pain !!!
-     * Everybody else using this function in any other sychronisation mechanism
-     * where disabling Interrupts is not _absolutely_ neccessary is going to be lashed !
-     */
-    void sleepAndRestoreInterrupts ( bool interrupts );
-
-    /**
-     * compares all threads in the scheduler's list to the one given
-     * since the scheduler knows about all existing threads, this is
-     * a good way to see if a *thread is valid
-     * @param *thread Pointer to the Thread's instance we want to check its existance bevore accessing it
-     * @return true if *thread exists, fales otherwise
-     */
-    bool checkThreadExists ( Thread* thread );
 
     /**
      * @ret true if Scheduling is enabled, false otherwis
@@ -136,6 +115,7 @@ class Scheduler
 
   protected:
     friend class IdleThread;
+    friend class CleanupThread;
     /**
      * this method is periodically called by the idle-Thread
      * it removes and deletes Threads in state ToBeDestroyed
@@ -148,7 +128,6 @@ class Scheduler
     uint32 getTicks();
     
   private:
-
     Scheduler();
 
     /**
@@ -164,20 +143,6 @@ class Scheduler
      */
     void unlockScheduling();
 
-    /**
-     * Scheduler internal lock abstraction method
-     * tests the thread-list-lock without setting it,
-     * use this _only_ in InterruptHandler-Context
-     * @return true if lock is set, false otherwise
-     */
-    bool testLock();
-
-    /**
-     * after blocking the Scheduler we need to test if all Locks we could possible
-     * acquire are really free, because otherwise we will deadlock.
-     */
-    void waitForFreeSpinLock(SpinLock& lock);
-
     static Scheduler *instance_;
 
     typedef ustl::list<Thread*> ThreadList;
@@ -186,5 +151,8 @@ class Scheduler
     size_t block_scheduling_;
 
     size_t ticks_;
+
+    IdleThread idle_thread_;
+    CleanupThread cleanup_thread_;
 };
 #endif

@@ -1,13 +1,8 @@
-/**
- * @file init_paging.cpp
- *
- */
-
 #include "types.h"
-#include "boot-time.h"
 #include "paging-definitions.h"
 #include "offsets.h"
 #include "multiboot.h"
+#include "ArchCommon.h"
 #include "kprintf.h"
 
 extern PageDirPointerTableEntry kernel_page_directory_pointer_table[];
@@ -15,17 +10,14 @@ extern PageDirEntry kernel_page_directory[];
 extern PageTableEntry kernel_page_table[];
 extern PageMapLevel4Entry kernel_page_map_level_4[];
 
-extern "C" void initialisePaging();
-extern "C" void removeBootTimeMapping();
-
-void initialisePaging()
+extern "C" void initialisePaging()
 {
   uint32 i;
 
   PageMapLevel4Entry *pml4 = (PageMapLevel4Entry*)VIRTUAL_TO_PHYSICAL_BOOT(kernel_page_map_level_4);
   PageDirPointerTableEntry *pdpt1 = (PageDirPointerTableEntry*)VIRTUAL_TO_PHYSICAL_BOOT((pointer)kernel_page_directory_pointer_table);
   PageDirPointerTableEntry *pdpt2 = pdpt1 + PAGE_DIR_POINTER_TABLE_ENTRIES;
-  PageDirEntry *pd1 = (PageDirEntry*)VIRTUAL_TO_PHYSICAL_BOOT((pointer)&kernel_page_directory);
+  PageDirEntry *pd1 = (PageDirEntry*)VIRTUAL_TO_PHYSICAL_BOOT((pointer)kernel_page_directory);
   PageDirEntry *pd2 = pd1 + PAGE_DIR_ENTRIES;
 
   // Note: the only valid address ranges are currently:
@@ -74,10 +66,7 @@ void initialisePaging()
     pd2[i].page.writeable = 1;
     pd2[i].page.present = 1;
   }
-  extern struct multiboot_remainder mbr;
-  struct multiboot_remainder &orig_mbr = (struct multiboot_remainder &)(*((struct multiboot_remainder*)VIRTUAL_TO_PHYSICAL_BOOT((pointer)&mbr)));
-  uint32 j;
-  if (orig_mbr.have_vesa_console)
+  if (ArchCommon::haveVESAConsole(0))
   {
     for (i = 0; i < 8; ++i) // map the 16 MiB (8 pages) framebuffer
     {
@@ -86,12 +75,12 @@ void initialisePaging()
       pd2[504+i].page.size = 1;
       pd2[504+i].page.cache_disabled = 1;
       pd2[504+i].page.write_through = 1;
-      pd2[504+i].page.page_ppn = (orig_mbr.vesa_lfb_pointer / (PAGE_SIZE * PAGE_TABLE_ENTRIES))+i;
+      pd2[504+i].page.page_ppn = (ArchCommon::getVESAConsoleLFBPtr(0) / (PAGE_SIZE * PAGE_TABLE_ENTRIES))+i;
     }
   }
 }
 
-void removeBootTimeMapping()
+extern "C" void removeBootTimeIdentMapping()
 {
   uint64* pml4 = (uint64*)VIRTUAL_TO_PHYSICAL_BOOT(kernel_page_map_level_4);
   pml4[0] = 0;

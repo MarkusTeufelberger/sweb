@@ -3,7 +3,6 @@
  *
  */
 
-#ifdef CMAKE_X86_32_PAE
 #ifndef _ARCH_MEMORY_H_
 #define _ARCH_MEMORY_H_
 
@@ -15,6 +14,10 @@
   PageDirEntry* page_directory = (PageDirEntry*) ArchMemory::getIdentAddressOfPPN(pdpt[pdpte_vpn].page_directory_ppn);\
   uint32 pde_vpn = (vpage % (PAGE_TABLE_ENTRIES * PAGE_DIRECTORY_ENTRIES)) / PAGE_TABLE_ENTRIES;\
   uint32 pte_vpn = (vpage % (PAGE_TABLE_ENTRIES * PAGE_DIRECTORY_ENTRIES)) % PAGE_TABLE_ENTRIES;
+
+extern PageDirPointerTableEntry kernel_page_directory_pointer_table[];
+extern PageDirEntry kernel_page_directory[];
+extern PageTableEntry kernel_page_tables[];
 
 /**
  *
@@ -75,10 +78,7 @@ public:
  * @return Virtual Address above 3GB pointing to the start of a memory segment that
  * is mapped to the physical page given
  */
-  static pointer getIdentAddressOfPPN(uint32 ppn, uint32 page_size=PAGE_SIZE)
-  {
-    return (3U*1024U*1024U*1024U) + (ppn * page_size);
-  }
+  static pointer getIdentAddressOfPPN(uint32 ppn, uint32 page_size=PAGE_SIZE);
 
 /**
  * Checks if a given Virtual Address is valid and is mapped to real memory
@@ -102,9 +102,12 @@ public:
  */
   static uint32 get_PPN_Of_VPN_In_KernelMapping(uint32 virtual_page, size_t *physical_page, uint32 *physical_pte_page=0);
   static uint32 get_PAddr_Of_VAddr_In_KernelMapping(uint32 virtual_addr);
-  PageDirPointerTableEntry* page_dir_pointer_table_;
 
+
+  PageDirPointerTableEntry* page_dir_pointer_table_;
   PageDirPointerTableEntry* getRootOfPagingStructure();
+  uint32 getValueForCR3();
+  static PageDirPointerTableEntry* getRootOfKernelPagingStructure();
 
   static const size_t RESERVED_START = 0x80000ULL;
   static const size_t RESERVED_END = 0xC0000ULL;
@@ -143,4 +146,4 @@ private:
 };
 
 #endif
-#endif
+

@@ -4,33 +4,26 @@
  */
 
 #include "InterruptUtils.h"
-#include "new.h"
-#include "ports.h"
+
+#include "ArchSerialInfo.h"
+#include "BDManager.h"
 #include "ArchMemory.h"
 #include "ArchThreads.h"
 #include "ArchCommon.h"
-#include "Console.h"
-#include "Terminal.h"
 #include "kprintf.h"
 #include "Scheduler.h"
-#include "debug_bochs.h"
 
-#include "arch_serial.h"
-#include "serial.h"
-#include "arch_keyboard_manager.h"
-#include "arch_bd_manager.h"
-#include "panic.h"
-
-#include "Thread.h"
+#include "SerialManager.h"
+#include "KeyboardManager.h"
 #include "ArchInterrupts.h"
 #include "backtrace.h"
+#include "Stabs2DebugInfo.h"
 
-//remove this later
 #include "Thread.h"
 #include "Loader.h"
 #include "Syscall.h"
 #include "paging-definitions.h"
-//---------------------------------------------------------------------------*/
+
 #define LO_WORD(x) (((uint32)(x)) & 0x0000FFFF)
 #define HI_WORD(x) ((((uint32)(x)) >> 16) & 0x0000FFFF)
 
@@ -63,7 +56,7 @@
 
 #define FLAG_PF_INSTR_FETCH 0x10 // =0: not an instruction fetch
                                  // =1: an instruction fetch (need PAE for that)
-//---------------------------------------------------------------------------*/
+
 struct GateDesc
 {
   uint16 offset_low;       // low word of handler entry point's address
@@ -77,7 +70,6 @@ struct GateDesc
   uint8 present   : 1;     // present- flag - set to 1
   uint16 offset_high;      // high word of handler entry point's address
 }__attribute__((__packed__));
-//---------------------------------------------------------------------------*/
 
 extern "C" void arch_dummyHandler();
 
@@ -125,7 +117,7 @@ void InterruptUtils::lidt(IDTR *idtr)
   }
 
 #define DUMMY_HANDLER(x) extern "C" void arch_dummyHandler_##x(); \
-  extern "C" void arch_switchThreadToUserPageDirChange();\
+  extern "C" void arch_contextSwitch();\
   extern "C" void dummyHandler_##x () \
   {\
     uint32 saved_switch_to_userspace = currentThread->switch_to_userspace_;\
@@ -136,89 +128,36 @@ void InterruptUtils::lidt(IDTR *idtr)
     kprintf("DUMMY_HANDLER: Spurious INT " #x "\n");\
     ArchInterrupts::disableInterrupts();\
     currentThread->switch_to_userspace_ = saved_switch_to_userspace;\
-    switch (currentThread->switch_to_userspace_)\
+    if (currentThread->switch_to_userspace_)\
     {\
-      case 0:\
-        break;\
-      case 1:\
-        currentThreadInfo = currentThread->user_arch_thread_info_;\
-        arch_switchThreadToUserPageDirChange();\
-        break;\
-      default:\
-        kpanict((uint8*)"PageFaultHandler: Undefinded switch_to_userspace value\n");\
+      currentThreadInfo = currentThread->user_arch_thread_info_;\
+      arch_contextSwitch();\
     }\
   }
 
 extern "C" void arch_irqHandler_0();
-extern "C" void arch_switchThreadKernelToKernel();
-extern "C" void arch_switchThreadKernelToKernelPageDirChange();
-extern "C" void arch_switchThreadToUserPageDirChange();
+extern "C" void arch_contextSwitch();
 extern "C" void irqHandler_0()
 {
-  static uint32 heart_beat_value = 0;
-  // static uint32 leds = 0;
-  // static uint32 ctr = 0;
-  char* fb = (char*)0xC00B8000;
-  switch (heart_beat_value)
-  {
-    default:
-    case 0:
-    fb[0] = '/';
-    fb[1] = 0x9f;
-    break;
-    case 1:
-    fb[0] = '-';
-    fb[1] = 0x9f;
-    break;
-    case 2:
-    fb[0] = '\\';
-    fb[1] = 0x9f;
-    break;
-    case 3:
-    fb[0] = '|';
-    fb[1] = 0x9f;
-    break;
-  }
-  heart_beat_value = (heart_beat_value + 1) % 4;
+  ArchCommon::drawHeartBeat();
 
   Scheduler::instance()->incTicks();
 
-  uint32 ret = Scheduler::instance()->schedule();
-  switch (ret)
-  {
-    case 0:
-      // kprintfd("irq0: Going to leave irq Handler 0 to kernel\n");
-      ArchInterrupts::EndOfInterrupt(0);
-      arch_switchThreadKernelToKernelPageDirChange();
-    case 1:
-      // kprintfd("irq0: Going to leave irq Handler 0 to user\n");
-      ArchInterrupts::EndOfInterrupt(0);
-      arch_switchThreadToUserPageDirChange();
-    default:
-      kprintfd("irq0: Panic in int 0 handler\n");
-      for( ; ; ) ;
-  }
+  Scheduler::instance()->schedule();
+  // kprintfd("irq0: Going to leave irq Handler 0\n");
+  ArchInterrupts::EndOfInterrupt(0);
+  arch_contextSwitch();
 }
 
 extern "C" void arch_irqHandler_65();
 extern "C" void irqHandler_65()
 {
-  uint32 ret = Scheduler::instance()->schedule();
-  switch (ret)
-  {
-    case 0:
-      // kprintfd("irq65: Going to leave int Handler 65 to kernel\n");
-      arch_switchThreadKernelToKernelPageDirChange();
-    case 1:
-      // kprintfd("irq65: Going to leave int Handler 65 to user\n");
-      arch_switchThreadToUserPageDirChange();
-
-    default:
-      kprintfd("irq65: Panic in int 65 handler\n");
-      for( ; ; ) ;
-  }
+  Scheduler::instance()->schedule();
+  // kprintfd("irq65: Going to leave int Handler 65 to user\n");
+  arch_contextSwitch();
 }
 
+extern Stabs2DebugInfo const *kernel_debug_info;
 
 extern "C" void arch_pageFaultHandler();
 extern "C" void pageFaultHandler(uint32 address, uint32 error)
@@ -226,7 +165,7 @@ extern "C" void pageFaultHandler(uint32 address, uint32 error)
   //--------Start "just for Debugging"-----------
 
   debug(PM, "[PageFaultHandler] Address: %x, Present: %d, Writing: %d, User: %d, Rsvc: %d - currentThread: %x %d:%s, switch_to_userspace_: %d\n",
-      address, error & FLAG_PF_PRESENT, (error & FLAG_PF_RDWR) >> 1, (error & FLAG_PF_USER) >> 2, (error & FLAG_PF_RSVD) >> 3, currentThread, currentThread->getPID(),
+      address, error & FLAG_PF_PRESENT, (error & FLAG_PF_RDWR) >> 1, (error & FLAG_PF_USER) >> 2, (error & FLAG_PF_RSVD) >> 3, currentThread, currentThread->getTID(),
       currentThread->getName(), currentThread->switch_to_userspace_);
 
   debug(PM, "[PageFaultHandler] The Pagefault was caused by an %s fetch\n", error & FLAG_PF_INSTR_FETCH ? "instruction" : "operand");
@@ -238,16 +177,25 @@ extern "C" void pageFaultHandler(uint32 address, uint32 error)
     // returned a wrong function name here! Especially routines residing inside
     // ASM- modules are very likely to be detected incorrectly.
     char FunctionName[255];
-    pointer StartAddr = get_function_name(currentThread->kernel_arch_thread_info_->eip, FunctionName);
+    pointer StartAddr = 0;
+    if (kernel_debug_info)
+      StartAddr = kernel_debug_info->getFunctionName(currentThread->kernel_arch_thread_info_->eip, FunctionName);
     if (StartAddr)
     {
-      ssize_t line = get_function_line(StartAddr,currentThread->kernel_arch_thread_info_->eip - StartAddr);
+      ssize_t line = kernel_debug_info->getFunctionLine(StartAddr,currentThread->kernel_arch_thread_info_->eip - StartAddr);
       if (line > 0)
         debug(PM, "[PageFaultHandler] This pagefault was probably caused by function <%s:%d>\n", FunctionName, line);
       else
         debug(PM, "[PageFaultHandler] This pagefault was probably caused by function <%s+%x>\n", FunctionName,
               currentThread->kernel_arch_thread_info_->eip - StartAddr);
     }
+
+    if (currentThread->user_arch_thread_info_ &&
+          currentThread->user_arch_thread_info_->cr3 != currentThread->kernel_arch_thread_info_->cr3)
+    {
+      debug(PM, "[PageFaultHandler] User and Kernel CR3 register values differ, this most likely is a bug!");
+    }
+
   }
 
   if(!address)
@@ -308,14 +256,12 @@ extern "C" void pageFaultHandler(uint32 address, uint32 error)
     }
   }
 
-  ArchThreads::printThreadRegisters(currentThread,0);
-  ArchThreads::printThreadRegisters(currentThread,1);
+  ArchThreads::printThreadRegisters(currentThread, false);
 
   //--------End "just for Debugging"-----------
 
 
   //save previous state on stack of currentThread
-  uint32 saved_switch_to_userspace = currentThread->switch_to_userspace_;
   currentThread->switch_to_userspace_ = false;
   currentThreadInfo = currentThread->kernel_arch_thread_info_;
   ArchInterrupts::enableInterrupts();
@@ -340,18 +286,10 @@ extern "C" void pageFaultHandler(uint32 address, uint32 error)
   }
   ArchInterrupts::disableInterrupts();
   asm volatile ("movl %cr3, %eax; movl %eax, %cr3;"); // only required in PAE mode
-  currentThread->switch_to_userspace_ = saved_switch_to_userspace;
-  switch (currentThread->switch_to_userspace_)
-  {
-    case 0:
-      break; //we already are in kernel mode
-    case 1:
-      currentThreadInfo = currentThread->user_arch_thread_info_;
-      arch_switchThreadToUserPageDirChange();
-      break; //not reached
-    default:
-      kpanict((uint8*)"PageFaultHandler: Undefinded switch_to_userspace value\n");
-  }
+  currentThread->switch_to_userspace_ = true;
+  currentThreadInfo = currentThread->user_arch_thread_info_;
+  arch_contextSwitch();
+  assert(false);
 }
 
 extern "C" void arch_irqHandler_1();
@@ -436,8 +374,8 @@ extern "C" void syscallHandler()
   ArchInterrupts::disableInterrupts();
   currentThread->switch_to_userspace_ = true;
   currentThreadInfo =  currentThread->user_arch_thread_info_;
-  //ArchThreads::printThreadRegisters(currentThread,1);
-  arch_switchThreadToUserPageDirChange();
+  //ArchThreads::printThreadRegisters(currentThread,false);
+  arch_contextSwitch();
 }
 
 #include "DummyHandlers.h" // dummy and error handler definitions and irq forwarding definitions

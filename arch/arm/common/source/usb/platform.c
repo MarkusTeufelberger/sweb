@@ -12,18 +12,12 @@
 #include <stdarg.h>
 #include "debug.h"
 #include "board_constants.h"
-
-#ifdef MEM_NO_RESERVE
-
-void* MemoryReserve(u32 length, void* physicalAddress) {
-	return physicalAddress;
-}
-
-#endif
+#include "kmalloc.h"
+#include "kstring.h"
 
 #ifndef MEM_INTERNAL_MANAGER
 void* MemoryAllocate(u32 size) {
-  return kmalloc(size + 0x2000) + 0x1000;  // well i don't trust it totally right now...
+  return (void*)(kmalloc(size + 0x2000) + 0x1000);  // well i don't trust it totally right now...
 }
 void MemoryDeallocate(void* address) {
   kfree(address - 0x1000);
@@ -37,7 +31,7 @@ void MemoryCopy(void* destination, void* source, u32 length)
 #define FLOAT_TEXT "Floats unsupported."
 
 #ifndef NO_LOG
-void LogPrintF(char* format, u32 formatLength, ...) {
+void LogPrintF(const char* format, u32 formatLength, ...) {
 	va_list args;
 	char messageBuffer[160];
 	u32 messageIndex, width = 0, precision = 1, characters;
@@ -321,12 +315,4 @@ void LogPrint(const char* message, u32 messageLength)
     /* Put our character, c, into the serial buffer */
     *(volatile unsigned long*)SERIAL_BASE = *message;
   }
-}
-
-void PlatformLoad()
-{
-#ifdef MEM_INTERNAL_MANAGER_DEFAULT 
-	FirstAllocation = HEAP_END;
-	FirstFreeAllocation = NULL;
-#endif
 }

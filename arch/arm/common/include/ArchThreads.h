@@ -10,19 +10,7 @@
 
 struct ArchThreadInfo
 {
-  uint32 r0;
-  uint32 r1;
-  uint32 r2;
-  uint32 r3;
-  uint32 r4;
-  uint32 r5;
-  uint32 r6;
-  uint32 r7;
-  uint32 r8;
-  uint32 r9;
-  uint32 r10;
-  uint32 r11;
-  uint32 r12;
+  uint32 r[13];
   uint32 sp;
   uint32 lr;
   uint32 cpsr;
@@ -56,26 +44,23 @@ public:
   static void initialise();
 
 /**
- * not implemented
- *
- */
-  static void switchToThreadOnIret(Thread *thread);
-
-/**
- * deletes the info if not null
- *
- * @param info to be cleaned up
- *
- */
-  static void cleanupThreadInfos(ArchThreadInfo *&info);
-
-/**
  * creates the ArchThreadInfo for a kernel thread
  * @param info where the ArchThreadInfo is saved
  * @param start_function instruction pointer is set so start function
  * @param stack stackpointer
  */
   static void createThreadInfosKernelThread(ArchThreadInfo *&info, pointer start_function, pointer stack);
+
+  /**
+   * changes an existing ArchThreadInfo so that execution will start / continue
+   * at the function specified
+   * it does not change anything else, and if the thread info / thread was currently
+   * executing something else this will lead to a lot of problems
+   * USE WITH CARE, or better, don't use at all if you're a student
+   * @param the ArchThreadInfo that we are going to mangle
+   * @param start_function instruction pointer for the next instruction that gets executed
+   */
+  static void changeInstructionPointer(ArchThreadInfo *info, pointer function);
 
 /**
  * creates the ArchThreadInfo for a user thread
@@ -102,14 +87,6 @@ public:
   static void setAddressSpace(Thread *thread, ArchMemory& arch_memory);
 
 /**
- * function to get the PageDirectory of a given thread
- *
- * @param *thread Pointer to Thread Object
- * @return returns pde page of *thread
- */
-  static uint32 getPageDirectory(Thread *thread);
-
-/**
  * uninterruptable locked operation
  * exchanges value in variable lock with new_value and returns the old_value
  *
@@ -128,6 +105,8 @@ public:
  */
   static uint32 atomic_add(uint32 &value, int32 increment);
   static int32 atomic_add(int32 &value, int32 increment);
+  static uint64 atomic_add(uint64 &value, int64 increment);
+  static int64 atomic_add(int64 &value, int64 increment);
 
 /**
  *
@@ -135,7 +114,8 @@ public:
  * @param userspace_register
  *
  */
-  static void printThreadRegisters(Thread *thread, uint32 userspace_registers);
+  static void printThreadRegisters(Thread *thread, uint32 userspace_registers, bool verbose = true);
+  static void printThreadRegisters(Thread *thread, bool verbose = true);
 };
 
 #endif

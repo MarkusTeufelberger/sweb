@@ -4,7 +4,6 @@
  */
 
 #include "ArchThreads.h"
-#include "ArchCommon.h"
 #include "ArchMemory.h"
 #include "kprintf.h"
 #include "paging-definitions.h"
@@ -15,13 +14,13 @@
 
 SpinLock global_atomic_add_lock("");
 
-extern "C" uint32 kernel_page_directory_start;
+extern PageDirEntry kernel_page_directory[];
 
 void ArchThreads::initialise()
 {
   new (&global_atomic_add_lock) SpinLock("global_atomic_add_lock");
   currentThreadInfo = (ArchThreadInfo*) new uint8[sizeof(ArchThreadInfo)];
-  pointer pageDirectory = VIRTUAL_TO_PHYSICAL_BOOT(((pointer)&kernel_page_directory_start));
+  pointer pageDirectory = VIRTUAL_TO_PHYSICAL_BOOT(((pointer)kernel_page_directory));
   currentThreadInfo->ttbr0 = pageDirectory;
 }
 
@@ -34,17 +33,11 @@ void ArchThreads::setAddressSpace(Thread *thread, ArchMemory& arch_memory)
     thread->user_arch_thread_info_->ttbr0 = LOAD_BASE + arch_memory.page_dir_page_ * PAGE_SIZE;
 }
 
-uint32 ArchThreads::getPageDirectory(Thread *thread)
-{
-  return thread->kernel_arch_thread_info_->ttbr0 / PAGE_SIZE;
-}
-
-
 void ArchThreads::createThreadInfosKernelThread(ArchThreadInfo *&info, pointer start_function, pointer stack)
 {
   info = (ArchThreadInfo*)new uint8[sizeof(ArchThreadInfo)];
-  ArchCommon::bzero((pointer)info,sizeof(ArchThreadInfo));
-  pointer pageDirectory = VIRTUAL_TO_PHYSICAL_BOOT(((pointer)&kernel_page_directory_start));
+  memset((void*)info, 0, sizeof(ArchThreadInfo));
+  pointer pageDirectory = VIRTUAL_TO_PHYSICAL_BOOT(((pointer)kernel_page_directory));
   assert((pageDirectory) != 0);
   assert(((pageDirectory) & 0x3FFF) == 0);
   assert(!(start_function & 0x3));
@@ -58,11 +51,17 @@ void ArchThreads::createThreadInfosKernelThread(ArchThreadInfo *&info, pointer s
   assert(((pageDirectory) & 0x3FFF) == 0);
 }
 
+void ArchThreads::changeInstructionPointer(ArchThreadInfo *info, pointer function)
+{
+  info->pc = function;
+  info->lr = function;
+}
+
 void ArchThreads::createThreadInfosUserspaceThread(ArchThreadInfo *&info, pointer start_function, pointer user_stack, pointer kernel_stack)
 {
   info = (ArchThreadInfo*)new uint8[sizeof(ArchThreadInfo)];
-  ArchCommon::bzero((pointer)info,sizeof(ArchThreadInfo));
-  pointer pageDirectory = VIRTUAL_TO_PHYSICAL_BOOT(((pointer)&kernel_page_directory_start));
+  memset((void*)info, 0, sizeof(ArchThreadInfo));
+  pointer pageDirectory = VIRTUAL_TO_PHYSICAL_BOOT(((pointer)kernel_page_directory));
   assert((pageDirectory) != 0);
   assert(((pageDirectory) & 0x3FFF) == 0);
   assert(!(start_function & 0x3));
@@ -70,30 +69,27 @@ void ArchThreads::createThreadInfosUserspaceThread(ArchThreadInfo *&info, pointe
   info->lr = start_function;
   info->cpsr = 0x60000010;
   info->sp = user_stack & ~0xF;
-  info->r11 = user_stack & ~0xF; // r11 is the fp
+  info->r[11] = user_stack & ~0xF; // r11 is the fp
   info->sp0 = kernel_stack & ~0xF;
   info->ttbr0 = pageDirectory;
   assert((pageDirectory) != 0);
   assert(((pageDirectory) & 0x3FFF) == 0);
 }
 
-void ArchThreads::cleanupThreadInfos(ArchThreadInfo *&info)
-{
-  //avoid NULL-Pointer
-  if (info)
-    delete info;
-}
-
-extern "C" void arch_yield(uint32);
 void ArchThreads::yield()
 {
-  arch_yield(0);
+  asm("swi #0xffff");
 }
 
+extern "C" void memory_barrier();
 extern "C" uint32 arch_TestAndSet(uint32, uint32, uint32 new_value, uint32 *lock);
 uint32 ArchThreads::testSetLock(uint32 &lock, uint32 new_value)
 {
-  return arch_TestAndSet(0,0,new_value, &lock);
+  uint32 result;
+  memory_barrier();
+  asm("swp %[r], %[n], [%[l]]" : [r]"=&r"(result) : [n]"r"(new_value), [l]"r"(&lock));
+  memory_barrier();
+  return result;
 }
 
 extern "C" uint32 arch_atomic_add(uint32, uint32, uint32 increment, uint32 *value);
@@ -111,7 +107,27 @@ int32 ArchThreads::atomic_add(int32 &value, int32 increment)
   return (int32) ArchThreads::atomic_add((uint32 &) value, increment);
 }
 
-void ArchThreads::printThreadRegisters(Thread *thread, uint32 userspace_registers)
+uint64 ArchThreads::atomic_add(uint64 &value, int64 increment)
+{
+  global_atomic_add_lock.acquire("before atomic_add");
+  uint64 result = value;
+  value += increment;
+  global_atomic_add_lock.release("after atomic_add");
+  return result;
+}
+
+int64 ArchThreads::atomic_add(int64 &value, int64 increment)
+{
+  return (int64) ArchThreads::atomic_add((uint64 &) value, increment);
+}
+
+void ArchThreads::printThreadRegisters(Thread *thread, bool verbose)
+{
+  printThreadRegisters(thread,0,verbose);
+  printThreadRegisters(thread,1,verbose);
+}
+
+void ArchThreads::printThreadRegisters(Thread *thread, uint32 userspace_registers, bool verbose)
 {
   ArchThreadInfo *info = userspace_registers?thread->user_arch_thread_info_:thread->kernel_arch_thread_info_;
   if (!info)
@@ -119,7 +135,17 @@ void ArchThreads::printThreadRegisters(Thread *thread, uint32 userspace_register
     kprintfd("Error, this thread's archthreadinfo is 0 for use userspace regs: %d\n",userspace_registers);
     return;
   }
-  kprintfd("%sThread: %10x, info: %10x -- ttbr0: %10x  pc: %10x  sp: %10x  lr: %10x  cpsr: %10x -- r0:%10x r1:%10x r2:%10x r3:%10x r4:%10x r5:%10x r6:%10x r7:%10x r8:%10x r9:%10x r10:%10x r11:%10x r12:%10x\n",
-           userspace_registers?"  User":"Kernel",thread,info,info->ttbr0,info->pc,info->sp,info->lr,info->cpsr,info->r0,info->r1,info->r2,info->r3,info->r4,info->r5,info->r6,info->r7,info->r8,info->r9,info->r10,info->r11,info->r12);
+  if (verbose)
+  {
+    kprintfd("\t\t%sThread: %10x, info: %10x\n"\
+             "\t\t\tttbr0: %10x  pc: %10x  sp: %10x  lr: %10x  cpsr: %10x\n"\
+             "\t\t\tr0:%10x r1:%10x r2:%10x r3:%10x r4:%10x r5:%10x r6:%10x r7:%10x r8:%10x r9:%10x r10:%10x r11:%10x r12:%10x\n",
+             userspace_registers?"  User":"Kernel",thread,info,info->ttbr0,info->pc,info->sp,info->lr,info->cpsr,info->r[0],info->r[1],info->r[2],info->r[3],info->r[4],info->r[5],info->r[6],info->r[7],info->r[8],info->r[9],info->r[10],info->r[11],info->r[12]);
 
+  }
+  else
+  {
+    kprintfd("%sThread: %10x, info: %10x -- ttbr0: %10x  pc: %10x  sp: %10x  lr: %10x  cpsr: %10x -- r0:%10x r1:%10x r2:%10x r3:%10x r4:%10x r5:%10x r6:%10x r7:%10x r8:%10x r9:%10x r10:%10x r11:%10x r12:%10x\n",
+             userspace_registers?"  User":"Kernel",thread,info,info->ttbr0,info->pc,info->sp,info->lr,info->cpsr,info->r[0],info->r[1],info->r[2],info->r[3],info->r[4],info->r[5],info->r[6],info->r[7],info->r[8],info->r[9],info->r[10],info->r[11],info->r[12]);
+  }
 }

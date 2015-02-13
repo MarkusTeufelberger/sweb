@@ -1,6 +1,5 @@
-/**
- * @file kprintf.h
- */
+#ifndef KPRINTF_H__
+#define KPRINTF_H__
 
 #include "stdarg.h"
 #include "types.h"
@@ -24,19 +23,6 @@ void kprintf ( const char *fmt, ... );
  * @param args Possible multibple variable for printf as specified in Format String.
  */
 void kprintfd ( const char *fmt, ... );
-
-/**
- * prints out a whole buffer with the given size to the Console.
- * @param buffer the buffer to print
- * @param size the buffer's size
- */
-void kprint_buffer ( char *buffer, size_t size );
-/**
- * prints out a whole buffer with the given size to the debug console.
- * @param buffer the buffer to print
- * @param size the buffer's size
- */
-void kprintd_buffer ( char *buffer, size_t size );
 /**
  * Initializes the nosleep functionality and starts the flushing thread.
  */
@@ -60,8 +46,4 @@ void debug ( size_t flag, const char *fmt, ... );
  */
 bool isDebugEnabled ( size_t flage );
 
-/**
- * writes a string to the port 0xe9
- * @param str the string to write
- */
-void oh_writeStringDebugNoSleep ( char const* str );
+#endif

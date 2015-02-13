@@ -1,5 +1,3 @@
-LINEAR_DATA_SEL equ 0x20
-
 ; ok, this is our main interrupt handling stuff
 BITS 64
 
@@ -49,8 +47,10 @@ BITS 64
   pop rsp
 %endmacro
 
+%define KERNEL_DS 0x20
+
 %macro changeData 0
-        mov ax, 0x20
+        mov ax, KERNEL_DS
         mov ss, ax
         mov ds, ax
         mov es, ax
@@ -70,6 +70,8 @@ extern irqHandler_%1
 arch_irqHandler_%1:
         pushAll
         changeData
+        mov rdi, rsp
+        mov rsi, 0
         call arch_saveThreadRegisters
         call irqHandler_%1
         popAll
@@ -80,8 +82,6 @@ arch_irqHandler_%1:
 global arch_dummyHandler_%1
 extern dummyHandler_%1
 arch_dummyHandler_%1:
-mov rax, 01338h
-hlt
         pushAll
         call dummyHandler_%1
         popAll
@@ -103,15 +103,15 @@ section .text
 extern pageFaultHandler
 global arch_pageFaultHandler
 arch_pageFaultHandler:
-        ;we are already on a new stack because a privliedge switch happened
-        pop rsi
         pushAll ; pushes 144 bytes to stack
         changeData
+        mov rdi, rsp
+        mov rsi, 1
         call arch_saveThreadRegisters
+        mov rsi, [rsp + 144]
         mov rdi, cr2
         call pageFaultHandler
-        popAll ; pops 144 bytes from stack
-        iretq ; restore user stack
+        hlt
 
 %assign i 0
 %rep 16
@@ -143,10 +143,8 @@ errorhandler 18
 errorhandler 19
 
 %assign i 20
-%rep 236 ; generate dummyhandler 20-255
-%if i != 128
+%rep 108 ; generate dummyhandler 20-128
 dummyhandler i
-%endif
 %assign i i+1
 %endrep
 
@@ -155,6 +153,8 @@ extern syscallHandler
 arch_syscallHandler:
     pushAll
     changeData
+    mov rdi, rsp
+    mov rsi, 0
     call arch_saveThreadRegisters
     call syscallHandler
     hlt

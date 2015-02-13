@@ -6,23 +6,19 @@
 #include "ArchCommon.h"
 #include "multiboot.h"
 #include "debug_bochs.h"
-#include "boot-time.h"
 #include "offsets.h"
 #include "kprintf.h"
-#include "string.h"
+#include "kstring.h"
 #include "ArchMemory.h"
 #include "FrameBufferConsole.h"
 #include "TextConsole.h"
 
 extern void* kernel_end_address;
 
-extern multiboot_info_t* multi_boot_structure_pointer;
+multiboot_info_t* multi_boot_structure_pointer = (multiboot_info_t*)0xDEADDEAD; // must not be in bss segment
+static struct multiboot_remainder mbr __attribute__ ((section (".data"))); // must not be in bss segment
 
-struct multiboot_remainder mbr = {0,0,0,0,0,0,0,{TEN_MEMMAP_INIT},{TEN_MODMAP_INIT}};
-
-extern "C" void parseMultibootHeader();
-
-void parseMultibootHeader()
+extern "C" void parseMultibootHeader()
 {
   uint32 i;
   multiboot_info_t *mb_infos = *(multiboot_info_t**)VIRTUAL_TO_PHYSICAL_BOOT( (pointer)&multi_boot_structure_pointer);
@@ -190,87 +186,6 @@ uint32 ArchCommon::getUsableMemoryRegion(size_t region, pointer &start_address, 
   return 0;
 }
 
-#define MEMCOPY_LARGE_TYPE uint32
-
-void ArchCommon::memcpy(pointer dest, pointer src, size_t size)
-{
-  MEMCOPY_LARGE_TYPE *s64 = (MEMCOPY_LARGE_TYPE*)src;
-  MEMCOPY_LARGE_TYPE *d64 = (MEMCOPY_LARGE_TYPE*)dest;
-
-  uint32 i;
-  uint32 num_64_bit_copies = size / (sizeof(MEMCOPY_LARGE_TYPE)*8);
-  uint32 num_8_bit_copies = size % (sizeof(MEMCOPY_LARGE_TYPE)*8);
-
-  for (i=0;i<num_64_bit_copies;++i)
-  {
-    d64[0] = s64[0];
-    d64[1] = s64[1];
-    d64[2] = s64[2];
-    d64[3] = s64[3];
-    d64[4] = s64[4];
-    d64[5] = s64[5];
-    d64[6] = s64[6];
-    d64[7] = s64[7];
-    d64 += 8;
-    s64 += 8;
-  }
-
-  uint8 *s8 = (uint8*)s64;
-  uint8 *d8 = (uint8*)d64;
-
-  for (i=0;i<num_8_bit_copies;++i)
-  {
-    *d8 = *s8;
-    ++d8;
-    ++s8;
-  }
-}
-
-void ArchCommon::bzero(pointer s, size_t n, uint32 debug)
-{
-  if (debug) kprintfd("Bzero start %x\n",s);
-  MEMCOPY_LARGE_TYPE *s64 = (MEMCOPY_LARGE_TYPE*)s;
-  uint32 num_64_bit_zeros = n / sizeof(MEMCOPY_LARGE_TYPE);
-  uint32 num_8_bit_zeros = n % sizeof(MEMCOPY_LARGE_TYPE);
-  uint32 i;
-  if (debug) kprintfd("Bzero next %x\n", s64);
-  for (i=0;i<num_64_bit_zeros;++i)
-  {
-    *s64 = 0;
-    ++s64;
-  }
-  uint8 *s8 = (uint8*)s64;
-  if (debug) kprintfd("Bzero middle %x\n", s8);
-  for (i=0;i<num_8_bit_zeros;++i)
-  {
-    *s8 = 0;
-    ++s8;
-  }
-  if (debug) kprintfd("Bzero end, %x\n", s8);
-}
-
-uint32 ArchCommon::checksumPage(uint32 physical_page_number, uint32 page_size)
-{
-  return ArchCommon::checksum((uint32*)ArchMemory::getIdentAddressOfPPN(physical_page_number),page_size / sizeof(uint32));
-}
-
-uint32 ArchCommon::checksum(uint32* src, uint32 count)
-{
-  uint32 poly = 0xEDB88320;
-  int bit = 0, nbits = 32;
-  uint32 res = 0xFFFFFFFF;
-
-  for (uint32 i = 0; i < count; ++i)
-    for (bit = nbits - 1; bit >= 0; --bit)
-      if ((res & 1) != ((src[i] >> bit) & 1))
-        res = (res >> 1) ^ poly;
-      else
-        res = (res >> 1) + 7;
-
-  res ^= 0xFFFFFFFF;
-  return res;
-}
-
 Console* ArchCommon::createConsole(uint32 count)
 {
   if (haveVESAConsole())
@@ -279,12 +194,69 @@ Console* ArchCommon::createConsole(uint32 count)
     return new TextConsole(count);
 }
 
+
+#if (A_BOOT == A_BOOT | OUTPUT_ENABLED)
+#define PRINT(X) writeLine2Bochs((const char*)VIRTUAL_TO_PHYSICAL_BOOT(X))
+#else
+#define PRINT(X)
+#endif
+
+extern SegmentDescriptor gdt[7];
+extern "C" void startup();
+extern "C" void initialisePaging();
+extern uint8 boot_stack[0x4000];
+
+struct GDTPtr
+{
+    uint16 limit;
+    uint64 addr;
+}__attribute__((__packed__)) gdt_ptr;
+
+extern "C" void entry64()
+{
+  PRINT("Parsing Multiboot Header...\n");
+  parseMultibootHeader();
+  PRINT("Initializing Kernel Paging Structures...\n");
+  initialisePaging();
+  PRINT("Setting CR3 Register...\n");
+  asm("mov %%rax, %%cr3" : : "a"(VIRTUAL_TO_PHYSICAL_BOOT(ArchMemory::getRootOfKernelPagingStructure())));
+  PRINT("Switch to our own stack...\n");
+  asm("mov %[stack], %%rsp\n"
+      "mov %[stack], %%rbp\n" : : [stack]"i"(boot_stack + 0x4000));
+  PRINT("Loading Long Mode Segments...\n");
+
+  gdt_ptr.limit = sizeof(gdt) - 1;
+  gdt_ptr.addr = (uint64)gdt;
+  asm("lgdt (%%rax)" : : "a"(&gdt_ptr));
+  asm("mov %%ax, %%ds\n"
+      "mov %%ax, %%es\n"
+      "mov %%ax, %%ss\n"
+      "mov %%ax, %%fs\n"
+      "mov %%ax, %%gs\n"
+      : : "a"(KERNEL_DS));
+  asm("ltr %%ax" : : "a"(KERNEL_TSS));
+  PRINT("Calling startup()...\n");
+  asm("jmp *%[startup]" : : [startup]"r"(startup));
+  while (1);
+}
+
+class Stabs2DebugInfo;
+Stabs2DebugInfo const *kernel_debug_info = 0;
+
 void ArchCommon::initDebug()
 {
 }
 
-
 void ArchCommon::idle()
 {
-  __asm__ __volatile__ ( "hlt" );
+  asm volatile("hlt");
+}
+
+void ArchCommon::drawHeartBeat()
+{
+  const char* clock = "/-\\|";
+  static uint32 heart_beat_value = 0;
+  char* fb = (char*)getFBPtr();
+  fb[0] = clock[heart_beat_value++ % 4];
+  fb[1] = 0x9f;
 }

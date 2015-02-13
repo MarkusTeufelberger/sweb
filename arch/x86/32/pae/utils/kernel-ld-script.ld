@@ -22,6 +22,7 @@ SECTIONS
     text_start_address = .;
     *(.mboot)
     *(.text)
+    *(.text.*)
     text_end_address = .;
     *(.gnu.linkonce.r.*)
     ro_data_start_address = .;
@@ -29,13 +30,6 @@ SECTIONS
     ro_data_end_address = .;
     . = ALIGN(4096);
 
-/*  stab_start_address_nr = .;
-    *(.stab)
-    stab_end_address_nr = .;
-    . = .;
-    stabstr_start_address_nr = .;
-    *(.stabstr)
-    stabstr_end_address_nr = .;*/
   }
 
   .data  ALIGN(4096) : AT(LS_Phys + (LS_Data - LS_Code))
@@ -45,8 +39,6 @@ SECTIONS
     *(.data)
     . = ALIGN(4096);
     *(.gdt_stuff)
-    . = ALIGN(4096);
-    *(.idt_stuff)
     data_end_address = .;
     . = ALIGN(4096);
   }
@@ -56,10 +48,8 @@ SECTIONS
     LS_Bss = .;
     bss_start_address = .;
     *(.bss)
+    . = ALIGN(4096);
     *(COMMON) /* common symbols, usually placed in .bss */
-    . = ALIGN(4096);
-    *(.paging_stuff)
-    . = ALIGN(4096);
     bss_end_address = .;
 
   }

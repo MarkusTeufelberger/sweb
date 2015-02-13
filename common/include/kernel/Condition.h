@@ -5,9 +5,10 @@
 #ifndef CONDITION__
 #define CONDITION__
 
-#include <ustl/ulist.h>
-#include "Thread.h"
-#include "Mutex.h"
+#include <ulist.h>
+
+class Thread;
+class Mutex;
 
 /**
  * @class Condition For Conditionmanagement
@@ -47,6 +48,13 @@ class Condition
      *Acquires the Mutex when waking up.
      */
     void wait();
+
+    /**
+     *Only possible if the current Thread has acquired the Mutex.
+     *The Thread is put on the list of sleepers, releases the Mutex and goes to sleep
+     *Does NOT acquire the Mutex when waking up and is therefore safe to use if Condition and Mutex get deleted before being scheduled after wake()
+     */
+    void waitWithoutReAcquire();
 
     /**
      *Wakes up the first Thread on the sleepers list.

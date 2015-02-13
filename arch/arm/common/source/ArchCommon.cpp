@@ -4,14 +4,14 @@
  */
 
 #include "ArchCommon.h"
-#include "arch_board_specific.h"
-#include "boot-time.h"
+#include "ArchBoardSpecific.h"
 #include "offsets.h"
 #include "kprintf.h"
 #include "ArchMemory.h"
 #include "TextConsole.h"
 #include "FrameBufferConsole.h"
 #include "backtrace.h"
+#include "Stabs2DebugInfo.h"
 
 #define PHYSICAL_MEMORY_AVAILABLE 8*1024*1024
 
@@ -33,22 +33,22 @@ pointer ArchCommon::getFreeKernelMemoryEnd()
 }
 
 
-uint32 ArchCommon::haveVESAConsole(uint32 is_paging_set_up)
+uint32 ArchCommon::haveVESAConsole(uint32 is_paging_set_up __attribute__((unused)))
 {
   return true;
 }
 
-uint32 ArchCommon::getNumModules(uint32 is_paging_set_up)
+uint32 ArchCommon::getNumModules(uint32 is_paging_set_up __attribute__((unused)))
 {
   return 1;
 }
 
-uint32 ArchCommon::getModuleStartAddress(uint32 num, uint32 is_paging_set_up)
+uint32 ArchCommon::getModuleStartAddress(uint32 num __attribute__((unused)), uint32 is_paging_set_up __attribute__((unused)))
 {
   return 0x80000000U;
 }
 
-uint32 ArchCommon::getModuleEndAddress(uint32 num, uint32 is_paging_set_up)
+uint32 ArchCommon::getModuleEndAddress(uint32 num __attribute__((unused)), uint32 is_paging_set_up __attribute__((unused)))
 {
   return 0x80400000U;  //2GB+4MB Ende des Kernel Bereichs
 }
@@ -63,12 +63,12 @@ uint32 ArchCommon::getVESAConsoleWidth()
   return 640;
 }
 
-pointer ArchCommon::getVESAConsoleLFBPtr(uint32 is_paging_set_up)
+pointer ArchCommon::getVESAConsoleLFBPtr(uint32 is_paging_set_up __attribute__((unused)))
 {
   return ArchBoardSpecific::getVESAConsoleLFBPtr();
 }
 
-pointer ArchCommon::getFBPtr(uint32 is_paging_set_up)
+pointer ArchCommon::getFBPtr(uint32 is_paging_set_up __attribute__((unused)))
 {
   return getVESAConsoleLFBPtr();
 }
@@ -88,89 +88,13 @@ uint32 ArchCommon::getUsableMemoryRegion(uint32 region, pointer &start_address, 
   return ArchBoardSpecific::getUsableMemoryRegion(region, start_address, end_address, type);
 }
 
-#define MEMCOPY_LARGE_TYPE uint32
-
-void ArchCommon::memcpy(pointer dest, pointer src, size_t size)
-{
-  MEMCOPY_LARGE_TYPE *s64 = (MEMCOPY_LARGE_TYPE*)src;
-  MEMCOPY_LARGE_TYPE *d64 = (MEMCOPY_LARGE_TYPE*)dest;
-
-  uint32 i;
-  uint32 num_64_bit_copies = size / (sizeof(MEMCOPY_LARGE_TYPE)*8);
-  uint32 num_8_bit_copies = size % (sizeof(MEMCOPY_LARGE_TYPE)*8);
-
-  for (i=0;i<num_64_bit_copies;++i)
-  {
-    d64[0] = s64[0];
-    d64[1] = s64[1];
-    d64[2] = s64[2];
-    d64[3] = s64[3];
-    d64[4] = s64[4];
-    d64[5] = s64[5];
-    d64[6] = s64[6];
-    d64[7] = s64[7];
-    d64 += 8;
-    s64 += 8;
-  }
-
-  uint8 *s8 = (uint8*)s64;
-  uint8 *d8 = (uint8*)d64;
-
-  for (i=0;i<num_8_bit_copies;++i)
-  {
-    *d8 = *s8;
-    ++d8;
-    ++s8;
-  }
-}
-
-void ArchCommon::bzero(pointer s, size_t n, uint32 debug)
-{
-  if (debug) kprintf("Bzero start\n");
-  MEMCOPY_LARGE_TYPE *s64 = (MEMCOPY_LARGE_TYPE*)s;
-  uint32 num_64_bit_zeros = n / sizeof(MEMCOPY_LARGE_TYPE);
-  uint32 num_8_bit_zeros = n % sizeof(MEMCOPY_LARGE_TYPE);
-  uint32 i;
-  if (debug) kprintf("Bzero next\n");
-  for (i=0;i<num_64_bit_zeros;++i)
-  {
-    *s64 = 0;
-    ++s64;
-  }
-  uint8 *s8 = (uint8*)s64;
-  if (debug) kprintf("Bzero middle\n");
-  for (i=0;i<num_8_bit_zeros;++i)
-  {
-    *s8 = 0;
-    ++s8;
-  }
-  if (debug) kprintf("Bzero end\n");
-}
-
-uint32 ArchCommon::checksumPage(uint32 physical_page_number, uint32 page_size)
-{
-  uint32 *src = (uint32*)ArchMemory::getIdentAddressOfPPN(physical_page_number);
-
-  uint32 poly = 0xEDB88320;
-  int bit = 0, nbits = 32;
-  uint32 res = 0xFFFFFFFF;
-
-  for (uint32 i = 0; i < page_size/sizeof(*src); ++i)
-    for (bit = nbits - 1; bit >= 0; --bit)
-      if ((res & 1) != ((src[i] >> bit) & 1))
-        res = (res >> 1) ^ poly;
-      else
-        res = (res >> 1) + 7;
-
-  res ^= 0xFFFFFFFF;
-  return res;
-}
-
 Console* ArchCommon::createConsole(uint32 count)
 {
   ArchBoardSpecific::frameBufferInit();
   return new FrameBufferConsole(count);
 }
+
+Stabs2DebugInfo const *kernel_debug_info = 0;
 
 void ArchCommon::initDebug()
 {
@@ -179,13 +103,35 @@ void ArchCommon::initDebug()
 
   extern unsigned char stabstr_start_address_nr;
 
-  parse_symtab((StabEntry*)&stab_start_address_nr, (StabEntry*)&stab_end_address_nr, (const char*)&stabstr_start_address_nr);
+  kernel_debug_info = new Stabs2DebugInfo((char const *)&stab_start_address_nr,
+                                          (char const *)&stab_end_address_nr,
+                                          (char const *)&stabstr_start_address_nr);
+
 }
 
-extern "C" void halt();
+extern "C" void halt()
+{
+  asm("mcr p15, 0, %[v], c7, c0, 4" : : [v]"r" (0)); // Wait for interrupt
+}
 
 void ArchCommon::idle()
 {
   ArchBoardSpecific::onIdle();
   halt();
+}
+
+
+extern "C" void __aeabi_atexit()
+{
+  assert(false && "would not make sense in a kernel");
+}
+
+extern "C" void __aeabi_unwind_cpp_pr0()
+{
+  assert(false && "no exception handling implemented");
+}
+
+extern "C" void raise()
+{
+  assert(false && "no exception handling implemented");
 }

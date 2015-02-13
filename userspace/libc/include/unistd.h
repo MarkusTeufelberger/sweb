@@ -17,33 +17,16 @@
 // along with this program; if not, write to the Free Software
 // Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
-
-/**
- * CVS Log Info for $RCSfile: unistd.h,v $
- *
- * $Id: unistd.h,v 1.5 2006/11/18 20:27:02 aniederl Exp $
- * $Log: unistd.h,v $
- * Revision 1.4  2005/09/20 14:17:24  aniederl
- * adapted file descriptor constants for using those from kernel syscall definitions
- *
- * Revision 1.3  2005/09/13 17:31:04  aniederl
- * removed "unnecessary" functions
- *
- * Revision 1.2  2005/09/11 12:35:49  aniederl
- * added special syscall macro for return value pass-through
- *
- * Revision 1.1  2005/09/11 10:55:07  aniederl
- * initial import of unistd.h
- *
- */
-
-
 #ifndef unistd_h___
 #define unistd_h___
 
 #include "../../../common/include/kernel/syscall-definitions.h"
 #include "stdarg.h"
 #include "types.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 
 /**
@@ -300,25 +283,12 @@ extern ssize_t read(int file_descriptor, void *buffer, size_t count);
  */
 extern ssize_t write(int file_descriptor, const void *buffer, size_t count);
 
-/**
- * posix function signature
- * do not change the signature!
- */
 extern int brk(void *end_data_segment);
 
-/**
- * posix function signature
- * do not change the signature!
- */
 extern void* sbrk(intptr_t increment);
 
-/**
- * posix function signature
- * do not change the signature!
- */
 extern unsigned int sleep(unsigned int seconds);
 
-//----------------------------------------------------------------------
 /**
  * Replaces the current process image with a new one.
  * The values provided with the argv array are the arguments for the new
@@ -333,6 +303,11 @@ extern unsigned int sleep(unsigned int seconds);
  *
  */
 int execv(const char *path __attribute__((unused)), char *const argv[] __attribute__((unused)));
+
+#ifdef __cplusplus
+}
+#endif
+
 
 #endif // unistd_h___
 

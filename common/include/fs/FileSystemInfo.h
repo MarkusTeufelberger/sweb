@@ -1,56 +1,115 @@
-/**
- * Filename: FileSystemInfo.h
- * Description:
- *
- * Created on: 12.07.2012
- * Author: chris
- */
-
-#ifndef FILESYSTEMINFO_H_
-#define FILESYSTEMINFO_H_
+#ifndef FILESYSTEMINFO_H__
+#define FILESYSTEMINFO_H__
 
 #include "types.h"
+#include "ustring.h"
 
-// fwd decl
-class FsDevice;
-class FileSystem;
+class Dentry;
+class VfsMount;
 
 /**
- * @class FileSystem Info and Factory class giving Informations about a certain Fs
- * and creates and returns a new FS Instance on request
+ * @class FileSystemInfo The information of the file system
+ *
+ * This class used to store the system-information (i.e. the root-directory-info,
+ * the current-directory-info).
  */
 class FileSystemInfo
 {
-public:
-  FileSystemInfo();
-  virtual ~FileSystemInfo();
+  protected:
+    /**
+     * the root-directory
+     */
+    Dentry* root_;
 
-  /**
-   * getting the Partition Identifier of the FileSystem
-   * created by this Fs-Factory
-   * @return partition ident
-   */
-  virtual uint8 getPartitionIdent(void) const = 0;
+    /**
+     * the root vfsmount-struct
+     */
+    VfsMount* root_mnt_;
 
-  /**
-   * getting the name of the FS-created by this Factory
-   * @return the name of the FS
-   */
-  virtual const char* getName(void) const = 0;
+    /**
+     * the current-position-directory
+     */
+    Dentry* pwd_;
 
-  /**
-   * getNewFileSystemInstance - creates, confiures and returns a new
-   * FileSystem instance on the given device under considering the given
-   * mount-flags
-   *
-   * @param device the FsDevice were the Fs is located on
-   * @param mount_flags the mount-flags of the FileSystem
-   *
-   * @return a new instance of a FileSystem
-   */
-  virtual FileSystem* getNewFileSystemInstance(FsDevice* device, uint32 mount_flags) = 0;
+    /**
+     * the current-position vfsmount-struct
+     */
+    VfsMount* pwd_mnt_;
 
-private:
+    /**
+     * the alternative-root-directory
+     */
+    Dentry* alt_root_;
+
+    /**
+     * the alternative-root vfsmount-struct
+     */
+    VfsMount* alt_root_mnt_;
+
+  public:
+    FileSystemInfo();
+    ~FileSystemInfo();
+    FileSystemInfo(const FileSystemInfo& fsi);
+
+    /**
+     * set the ROOT-info to the class
+     * @param root the root dentry to set
+     * @param root_mnt the root_mnt to set
+     */
+    void setFsRoot(Dentry* root, VfsMount* root_mnt)
+    {
+      root_ = root;
+      root_mnt_ = root_mnt;
+    }
+
+    /**
+     * set the PWD-info to the class (PWD: print working directory)
+     * @param pwd the current path to set
+     * @param pwd_mnt the mount point of the current path to set
+     */
+    void setFsPwd(Dentry* pwd, VfsMount* pwd_mnt)
+    {
+      pwd_ = pwd;
+      pwd_mnt_ = pwd_mnt;
+    }
+
+    /**
+     * get the ROOT-info (ROOT-directory) from the class
+     * @return the root dentry
+     */
+    Dentry* getRoot()
+    {
+      return root_;
+    }
+
+    /**
+     * get the ROOT-info (ROOT-VfsMount-info) from the class
+     * @return the VfsMount
+     */
+    VfsMount* getRootMnt()
+    {
+      return root_mnt_;
+    }
+
+    /**
+     * get the PWD-info (PWD-directory) from the class
+     * @return the dentry of the current directory
+     */
+    Dentry* getPwd()
+    {
+      return pwd_;
+    }
+
+    /**
+     * get the PWD-info (PWD-VfsMount-info) from the class
+     * @return the VfsMount of the current directory
+     */
+    VfsMount* getPwdMnt()
+    {
+      return pwd_mnt_;
+    }
+
+    ustl::string pathname_;
 };
 
-#endif /* FILESYSTEMINFO_H_ */
+#endif // FILESYSTEMINFO_H___

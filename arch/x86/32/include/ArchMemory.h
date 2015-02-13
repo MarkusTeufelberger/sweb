@@ -3,7 +3,6 @@
  *
  */
 
-#ifdef CMAKE_X86_32
 #ifndef _ARCH_MEMORY_H_
 #define _ARCH_MEMORY_H_
 
@@ -14,6 +13,9 @@
   PageDirEntry* page_directory = (PageDirEntry*) ArchMemory::getIdentAddressOfPPN(pd);\
   uint32 pde_vpn = (vpage % (PAGE_TABLE_ENTRIES * PAGE_DIRECTORY_ENTRIES)) / PAGE_TABLE_ENTRIES;\
   uint32 pte_vpn = (vpage % (PAGE_TABLE_ENTRIES * PAGE_DIRECTORY_ENTRIES)) % PAGE_TABLE_ENTRIES;
+
+extern PageDirEntry kernel_page_directory[];
+extern PageTableEntry kernel_page_tables[];
 
 /**
  *
@@ -96,6 +98,8 @@ public:
   uint32 page_dir_page_;
 
   uint32 getRootOfPagingStructure();
+  uint32 getValueForCR3();
+  static PageDirEntry* getRootOfKernelPagingStructure();
 
   static const size_t RESERVED_START = 0x80000ULL;
   static const size_t RESERVED_END = 0xC0000ULL;
@@ -124,4 +128,4 @@ private:
 };
 
 #endif
-#endif
+

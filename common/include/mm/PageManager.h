@@ -1,45 +1,16 @@
-/**
- * @file PageManger.h
- */
-
 #ifndef PAGEMANAGER_H__
 #define PAGEMANAGER_H__
 
 #include "types.h"
 #include "paging-definitions.h"
-#include "new.h"
-#include "kernel/Mutex.h"
+#include "Mutex.h"
 
-typedef uint8 puttype;
-#define PAGE_RESERVED static_cast<puttype>(1<<0)
-#define PAGE_KERNEL static_cast<puttype>(1<<1)
-#define PAGE_USERSPACE static_cast<puttype>(1<<2)
-#define PAGE_4_PAGES_16K_ALIGNED static_cast<puttype>(1<<3)
+class Bitmap;
 
-
-#define PAGE_FREE static_cast<puttype>(0)
-
-/**
- * @class PageManager is in issence a BitMap managing free or used pages of size PAGE_SIZE only
- */
 class PageManager
 {
   public:
-
-    /**
-     * Creates a new instance (and THE ONLY ONE) of our page manager
-     * This one will also automagically initialise itself accordingly
-     * i.e. mark pages used by the kernel already as used
-     * @param next_usable_address Pointer to memory the page manager can use
-     * @return 0 on failure, otherwise a pointer to the next free memory location
-     */
-    static void createPageManager ();
-
-    /**
-    * the access method to the singleton instance
-    * @return the instance
-     */
-    static PageManager *instance() {return instance_;}
+    static PageManager *instance();
 
     /**
      * returns the number of 4k Pages avaible to sweb.
@@ -49,39 +20,34 @@ class PageManager
     uint32 getTotalNumPages() const;
 
     /**
-     * returns the number of the next free Physical Page
+     * returns the number of the lowest free Page
      * and marks that Page as used.
-     * @param type can be either PAGE_USERSPACE (default) or PAGE_KERNEL
-     * (passing PAGE_RESERVED or PAGE_FREE would obviously not make much sense,
-     * since the page then either can neve be free'd again or will be given out
-     * again)
+     * returns always 4kb ppns!
      */
-    uint32 getFreePhysicalPage ( uint32 type = PAGE_USERSPACE ); //also marks page as used
+    uint32 allocPPN(uint32 page_size = PAGE_SIZE);
 
     /**
      * marks physical page <page_number> as free, if it was used in
      * user or kernel space.
      * @param page_number Physcial Page to mark as unused
      */
-    void freePage ( uint32 page_number );
+    void freePPN(uint32 page_number, uint32 page_size = PAGE_SIZE);
 
   private:
-
     /**
-     * the singleton constructor
-     * @param start_of_structure the start address of the memory after the page manager
+     * used internally to mark pages as reserved
+     * @param ppn
+     * @param num
+     * @return
      */
-    PageManager ();
+    bool reservePages(uint32 ppn, uint32 num = 1);
 
-    /**
-     * Copy Constructor
-     * must not be implemented
-     */
-    PageManager ( PageManager const& );
-    //PageManager &operator=(PageManager const&){};
+    PageManager();
+    PageManager(PageManager const&);
+
     static PageManager* instance_;
 
-    puttype  *page_usage_table_;
+    Bitmap* page_usage_table_;
     uint32 number_of_pages_;
     uint32 lowest_unreserved_page_;
 

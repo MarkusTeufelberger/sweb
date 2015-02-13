@@ -78,6 +78,18 @@ public:
  */
   static void createThreadInfosKernelThread(ArchThreadInfo *&info, pointer start_function, pointer stack);
 
+
+  /**
+   * changes an existing ArchThreadInfo so that execution will start / continue
+   * at the function specified
+   * it does not change anything else, and if the thread info / thread was currently
+   * executing something else this will lead to a lot of problems
+   * USE WITH CARE, or better, don't use at all if you're a student
+   * @param the ArchThreadInfo that we are going to mangle
+   * @param start_function instruction pointer for the next instruction that gets executed
+   */
+  static void changeInstructionPointer(ArchThreadInfo *info, pointer function);
+
 /**
  * creates the ArchThreadInfo for a user thread
  * @param info where the ArchThreadInfo is saved
@@ -129,6 +141,8 @@ public:
  */
   static uint32 atomic_add(uint32 &value, int32 increment);
   static int32 atomic_add(int32 &value, int32 increment);
+  static uint64 atomic_add(uint64 &value, int64 increment);
+  static int64 atomic_add(int64 &value, int64 increment);
 
 /**
  *
@@ -136,7 +150,8 @@ public:
  * @param userspace_register
  *
  */
-  static void printThreadRegisters(Thread *thread, uint32 userspace_registers);
+  static void printThreadRegisters(Thread *thread, uint32 userspace_registers, bool verbose = true);
+  static void printThreadRegisters(Thread *thread, bool verbose = true);
 };
 
 #endif

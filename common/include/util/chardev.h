@@ -1,12 +1,7 @@
-/**
- * @file chardev.h
- */
-
 #ifndef CHAR_DEV_H__
 #define CHAR_DEV_H__
 
-
-#include "string.h"
+#include "ustring.h"
 #include "FiFo.h"
 
 /**
@@ -22,20 +17,16 @@ class CharacterDevice
      * @param super_block the superblock (0)
      * @param inode_type the inode type (cahracter device)
      */
-    CharacterDevice ( const char* name) : _in_buffer( CD_BUFFER_SIZE , FIFO_NOBLOCK_PUT | FIFO_NOBLOCK_PUT_OVERWRITE_OLD ),
-        _out_buffer( CD_BUFFER_SIZE , FIFO_NOBLOCK_PUT | FIFO_NOBLOCK_PUT_OVERWRITE_OLD )
+    CharacterDevice(const char* name) :
+        in_buffer_(CD_BUFFER_SIZE, FIFO_NOBLOCK_PUT | FIFO_NOBLOCK_PUT_OVERWRITE_OLD),
+        out_buffer_(CD_BUFFER_SIZE, FIFO_NOBLOCK_PUT | FIFO_NOBLOCK_PUT_OVERWRITE_OLD),
+        name_(name)
     {
-      uint32 name_len = strlen ( name ) + 1;
-      device_name = new char[name_len];
-      strlcpy ( device_name, name, name_len );
-    };
+    }
 
-    /**
-     * Destructor
-     */
     ~CharacterDevice()
     {
-    };
+    }
 
     /**
      * reads the data from the character device
@@ -44,20 +35,19 @@ class CharacterDevice
      * @param offset is never to be used, because there is no offset
      *        in character devices, but it is defined in the Inode interface
      */
-    virtual int32 readData ( uint32 offset, uint32 size, char *buffer )
+    virtual int32 readData(uint32 offset, uint32 size, char *buffer)
     {
-      if ( offset )
+      if (offset)
         return -1; // offset reading not supprted with char devices
 
       char *bptr = buffer;
       do
       {
-        *bptr++ = _in_buffer.get();
-      }
-      while ( ( bptr - buffer ) < (int32) size );
+        *bptr++ = in_buffer_.get();
+      } while ((bptr - buffer) < (int32) size);
 
-      return ( bptr - buffer );
-    };
+      return (bptr - buffer);
+    }
 
     /**
      * writes to the character device
@@ -66,52 +56,42 @@ class CharacterDevice
      * @param offset is never to be used, because there is no offset
      *        in character devices, but it is defined in the Inode interface
      */
-    virtual int32 writeData ( uint32 offset, uint32 size, const char*buffer )
+    virtual int32 writeData(uint32 offset, uint32 size, const char*buffer)
     {
-      if ( offset )
+      if (offset)
         return -1; // offset writing also not supp0rted
 
       const char *bptr = buffer;
       do
       {
-        _out_buffer.put ( *bptr++ );
-      }
-      while ( ( bptr - buffer ) < (int32) size );
+        out_buffer_.put(*bptr++);
+      } while ((bptr - buffer) < (int32) size);
 
-      return ( bptr - buffer );
-    };
-
-    char *getDeviceName() const
-    {
-      return device_name;
+      return (bptr - buffer);
     }
 
+    const char *getDeviceName() const
+    {
+      return name_.c_str();
+    }
 
   protected:
     static const uint32 CD_BUFFER_SIZE = 1024;
 
-    FiFo< uint8 > _in_buffer;
-    FiFo< uint8 > _out_buffer;
+    FiFo<uint8> in_buffer_;
+    FiFo<uint8> out_buffer_;
 
-    char *device_name;
+    ustl::string name_;
 
-    /**
-     * processes the in buffer of the character device
-     */
     void processInBuffer()
     {
-      _in_buffer.get();
-    };
+      in_buffer_.get();
+    }
 
-
-    /**
-     * processes the in buffer of the character device
-     */
     void processOutBuffer()
     {
-      _out_buffer.get();
-    };
-
+      out_buffer_.get();
+    }
 
 };
 

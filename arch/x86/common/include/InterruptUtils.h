@@ -19,7 +19,7 @@
 
 #include "types.h"
 
-static uint32 const NUM_INTERRUPT_HANDLERS = 256;
+static uint32 const NUM_INTERRUPT_HANDLERS = 128+32;
 
 typedef struct {
   uint32  number;      // handler number
@@ -41,18 +41,6 @@ public:
    * initialises all items of the interrupthandlers
    */
   static void initialise();
-
-  /**
-   * not implemented
-   * function from ArchInterrupts is used instead
-   */
-  static void enableInterrupts();
-
-  /**
-   * not implemented
-   * function from ArchInterrupts is used instead
-   */
-  static void disableInterrupts();
 
   /**
    *

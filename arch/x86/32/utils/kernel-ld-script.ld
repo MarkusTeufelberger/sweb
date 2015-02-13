@@ -19,6 +19,7 @@ SECTIONS
     text_start_address = .;
     *(.mboot)
     *(.text)
+    *(.text.*)
     text_end_address = .;
     *(.gnu.linkonce.r.*)
     ro_data_start_address = .;
@@ -35,11 +36,7 @@ SECTIONS
     . = ALIGN(4096);
     *(.gdt_stuff)
     . = ALIGN(4096);
-    *(.idt_stuff)
-    . = ALIGN(4096);
     *(COMMON) /* common symbols, usually placed in .bss */
-    . = ALIGN(4096);
-    *(.paging_stuff)
     data_end_address = .;
     . = ALIGN(4096);
   }

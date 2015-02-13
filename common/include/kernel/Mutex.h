@@ -1,11 +1,8 @@
-/**
- * @file Mutex.h
- */
 #ifndef _MUTEX_H_
 #define _MUTEX_H_
 
 #include "types.h"
-#include <ustl/ulist.h>
+#include <ulist.h>
 #include "SpinLock.h"
 #include "MutexLock.h"
 

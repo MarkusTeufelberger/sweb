@@ -1,9 +1,3 @@
-/**
- * @file paging-definitions.h
- *
- */
-
-#ifdef CMAKE_X86_32_PAE
 #ifndef __PAGING_DEFINITIONS_H__
 #define __PAGING_DEFINITIONS_H__
 
@@ -33,12 +27,11 @@ typedef struct
   uint64 write_through              :1;
   uint64 cache_disabled             :1;
   uint64 reserved_2                 :4;  // must be 0
-  uint64 avail_3                    :1;
-  uint64 avail_2                    :1;
-  uint64 avail_1                    :1;
+  uint64 ignored_3                  :1;
+  uint64 ignored_2                  :1;
+  uint64 ignored_1                  :1;
   uint64 page_directory_ppn         :24; // MAXPHYADDR (36) - 12
-  uint64 reserved_3                 :27; // must be 0
-  uint64 execution_disabled         :1;
+  uint64 reserved_3                 :28; // must be 0
 } __attribute__((__packed__)) PageDirPointerTableEntry;
 
 struct PageDirPageTableEntry
@@ -49,12 +42,12 @@ struct PageDirPageTableEntry
   uint64 write_through             :1;
   uint64 cache_disabled            :1;
   uint64 accessed                  :1;
-  uint64 avail_5                   :1;
+  uint64 ignored_5                 :1;
   uint64 size                      :1;
-  uint64 avail_4                   :1;
-  uint64 avail_3                   :1;
-  uint64 avail_2                   :1;
-  uint64 avail_1                   :1;
+  uint64 ignored_4                 :1;
+  uint64 ignored_3                 :1;
+  uint64 ignored_2                 :1;
+  uint64 ignored_1                 :1;
   uint64 page_table_ppn            :24; // MAXPHYADDR (36) - 12
   uint64 reserved_2                :27; // must be 0
   uint64 execution_disabled        :1;
@@ -71,9 +64,9 @@ struct PageDirPageEntry
   uint64 dirty                     :1;
   uint64 size                      :1;
   uint64 global_page               :1;
-  uint64 avail_3                   :1;
-  uint64 avail_2                   :1;
-  uint64 avail_1                   :1;
+  uint64 ignored_3                 :1;
+  uint64 ignored_2                 :1;
+  uint64 ignored_1                 :1;
 
   uint64 pat                       :1;
   uint64 reserved                  :8;
@@ -99,9 +92,9 @@ typedef struct
   uint64 dirty                     :1;
   uint64 pat                       :1;
   uint64 global_page               :1;
-  uint64 avail_3                   :1;
-  uint64 avail_2                   :1;
-  uint64 avail_1                   :1;
+  uint64 ignored_3                 :1;
+  uint64 ignored_2                 :1;
+  uint64 ignored_1                 :1;
   uint64 page_ppn                  :24; // MAXPHYADDR (36) - 12
   uint64 reserved_2                :27; // must be 0
   uint64 execution_disabled        :1;
@@ -110,4 +103,4 @@ typedef struct
 
 
 #endif
-#endif
+

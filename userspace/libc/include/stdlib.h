@@ -17,18 +17,14 @@
 // along with this program; if not, write to the Free Software
 // Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
-
-/**
- * CVS Log Info for $RCSfile: stdlib.h,v $
- *
- * $Id: stdlib.h,v 1.1 2005/09/13 20:46:38 aniederl Exp $
- * $Log$
- */
-
-
 #ifndef stdlib_h___
 #define stdlib_h___
 
+#include "types.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /**
  * exit value constants
@@ -77,22 +73,20 @@ extern void exit(int status);
  * register a function to be called at normal process termination
  * @param function the function to be called
  * @return 0 if successful, other-wise non-zero
- * posix function signature
- * do not change the signature!
  */
 extern int atexit(void (*function)(void));
 
-/**
- * posix function signature
- * do not change the signature!
- */
-extern void *malloc(unsigned int size);
+extern void *malloc(size_t size);
 
-/**
- * posix function signature
- * do not change the signature!
- */
+extern void *calloc(size_t nmemb, size_t size);
+
+extern void *realloc(void *ptr, size_t size);
+
 extern void free(void *ptr);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // stdlib_h___
 

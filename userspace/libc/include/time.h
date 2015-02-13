@@ -1,6 +1,10 @@
 #ifndef time_h___
 #define time_h___
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define CLOCKS_PER_SEC 1000000
 
 #ifndef CLOCK_T_DEFINED
@@ -8,13 +12,11 @@
 typedef unsigned int clock_t;
 #endif // CLOCK_T_DEFINED
 
-/**
- * posix function signature
- * do not change the signature!
- */
 extern clock_t clock(void);
 
-
+#ifdef __cplusplus
+}
+#endif
 
 #endif // time_h___
 

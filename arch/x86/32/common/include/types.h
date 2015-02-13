@@ -22,29 +22,20 @@ typedef uint32 pointer;
 
 typedef uint32 l_off_t;
 
-#ifndef USE_FILE_SYSTEM_ON_GUEST_OS
 typedef uint32 mode_t;
 typedef uint32 size_t;
 typedef int32 ssize_t;
-//#else
-//typedef uint32 loff_t;
-#endif
+
 typedef uint32 uid_t;
 typedef uint32 gid_t;
 
 #define Min(x,y) (((x)<(y))?(x):(y))
 #define Max(x,y) (((x)>(y))?(x):(y))
 
-#ifndef NO_POISON
-//#pragma GCC poison int
-//#pragma GCC poison short
-//#pragma GCC poison long
-//#pragma GCC poison unsigned
-#endif
-
-#define KERNEL_CS (8*3)
-#define KERNEL_DS (8*2)
-#define KERNEL_SS (8*2)
+#define KERNEL_CS  (8*3)
+#define KERNEL_DS  (8*2)
+#define KERNEL_SS  (8*2)
+#define KERNEL_TSS (8*6)
 #define DPL_KERNEL  0
 #define DPL_USER    3
 #define USER_CS ((8*5)|DPL_USER)

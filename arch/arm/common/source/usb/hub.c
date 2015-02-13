@@ -106,32 +106,6 @@ Result HubPortGetStatus(struct UsbDevice *device, u8 port) {
 	return OK;
 }
 
-Result HubChangeFeature(struct UsbDevice *device, enum HubFeature feature, bool set) {
-	Result result;
-	
-	if ((result = UsbControlMessage(
-		device, 
-		(struct UsbPipeAddress) { 
-			.Type = Control, 
-			.Speed = device->Speed, 
-			.EndPoint = 0, 
-			.Device = device->Number, 
-			.Direction = Out,
-			.MaxSize = SizeFromNumber(device->Descriptor.MaxPacketSize0),
-		},
-		NULL,
-		0,
-		&(struct UsbDeviceRequest) {
-			.Request = set ? SetFeature : ClearFeature,
-			.Type = 0x20,
-			.Value = (u8)feature,
-		},
-		ControlMessageTimeout)) != OK) 
-		return result;
-
-	return OK;
-}
-
 Result HubChangePortFeature(struct UsbDevice *device, enum HubPortFeature feature, u8 port, bool set) {
 	Result result;
 	
@@ -345,7 +319,7 @@ void HubChildDetached(struct UsbDevice *device, struct UsbDevice *child) {
 	
 	data = (struct HubDevice*)device->DriverData;
 	
-	if (child->Parent == device && child->PortNumber >= 0 && child->PortNumber < data->MaxChildren &&
+	if (child->Parent == device && child->PortNumber < data->MaxChildren &&
 		data->Children[child->PortNumber] == child)
 		data->Children[child->PortNumber] = NULL;
 }
@@ -355,7 +329,7 @@ Result HubChildReset(struct UsbDevice *device, struct UsbDevice *child) {
 	
 	data = (struct HubDevice*)device->DriverData;
 	
-	if (child->Parent == device && child->PortNumber >= 0 && child->PortNumber < data->MaxChildren &&
+	if (child->Parent == device && child->PortNumber < data->MaxChildren &&
 		data->Children[child->PortNumber] == child)
 		return HubPortReset(device, child->PortNumber);
 	else
@@ -368,7 +342,7 @@ Result HubCheckConnectionDevice(struct UsbDevice *device, struct UsbDevice *chil
 
 	data = (struct HubDevice*)device->DriverData;
 	
-	if (child->Parent == device && child->PortNumber >= 0 && child->PortNumber < data->MaxChildren &&
+	if (child->Parent == device && child->PortNumber < data->MaxChildren &&
 		data->Children[child->PortNumber] == child) {
 		if ((result = HubCheckConnection(device, child->PortNumber)) != OK)
 			return result;
@@ -504,14 +478,12 @@ Result HubAttach(struct UsbDevice *device, u32 interfaceNumber) {
 	LOG_DEBUGF("HUB: Hub power to good: %dms.\n", hubDescriptor->PowerGoodDelay * 2);
 	LOG_DEBUGF("HUB: Hub current required: %dmA.\n", hubDescriptor->MaximumHubPower * 2);
 	LOG_DEBUGF("HUB: Hub ports: %d.\n", hubDescriptor->PortCount);
-#if DEBUG
 	for (u32 i = 0; i < data->MaxChildren; i++) {
 		if (hubDescriptor->Data[(i + 1) >> 3] & 1 << ((i + 1) & 0x7)) 
 			LOG_DEBUGF("HUB: Hub port %d is not removable.\n", i + 1);
 		else
 			LOG_DEBUGF("HUB: Hub port %d is removable.\n", i + 1);
 	}
-#endif
 	
 	if ((result = HubGetStatus(device)) != OK) {
 		LOGF("HUB: Failed to get hub status for %s.\n", UsbGetDescription(device));

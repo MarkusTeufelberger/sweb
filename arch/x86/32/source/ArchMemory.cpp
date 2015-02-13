@@ -6,20 +6,20 @@
 #include "ArchMemory.h"
 #include "kprintf.h"
 #include "assert.h"
-#include "ArchCommon.h"
 #include "PageManager.h"
+#include "kstring.h"
 
-//extern "C" uint32 kernel_page_directory_start;
-extern "C" PageDirEntry kernel_page_directory_start;
+PageDirEntry kernel_page_directory[PAGE_DIRECTORY_ENTRIES] __attribute__((aligned(0x1000)));
+PageTableEntry kernel_page_tables[4 * PAGE_TABLE_ENTRIES] __attribute__((aligned(0x1000)));
 
 ArchMemory::ArchMemory()
 {
-  page_dir_page_ = PageManager::instance()->getFreePhysicalPage();
+  page_dir_page_ = PageManager::instance()->allocPPN();
   debug ( A_MEMORY,"ArchMemory::ArchMemory(): Got new Page no. %x\n",page_dir_page_ );
 
   PageDirEntry *new_page_directory = (PageDirEntry*) getIdentAddressOfPPN(page_dir_page_);
 
-  ArchCommon::memcpy((pointer) new_page_directory,(pointer) &kernel_page_directory_start, PAGE_SIZE);
+  memcpy((void*)new_page_directory, (const void*)kernel_page_directory, PAGE_SIZE);
   for (uint32 p = 0; p < 512; ++p) //we're concerned with first two gig, rest stays as is
   {
     new_page_directory[p].pt.present=0;
@@ -27,75 +27,7 @@ ArchMemory::ArchMemory()
   debug ( A_MEMORY,"ArchMemory::ArchMemory(): Initialised the page dir\n" );
 }
 
-void ArchMemory::checkAndRemovePT(uint32 pde_vpn)
-{
-  PageDirEntry *page_directory = (PageDirEntry *) getIdentAddressOfPPN(page_dir_page_);
-  PageTableEntry *pte_base = (PageTableEntry *) getIdentAddressOfPPN(page_directory[pde_vpn].pt.page_table_ppn);
-  assert(page_directory[pde_vpn].page.size == 0);
-
-  if (!page_directory[pde_vpn].pt.present) return; // PT not present -> do nothing.
-
-  for (uint32 pte_vpn=0; pte_vpn < PAGE_TABLE_ENTRIES; ++pte_vpn)
-    if (pte_base[pte_vpn].present > 0)
-      return; //not empty -> do nothing
-
-  //else:
-  page_directory[pde_vpn].pt.present = 0;
-  PageManager::instance()->freePage(page_directory[pde_vpn].pt.page_table_ppn);
-}
-
-void ArchMemory::unmapPage(uint32 virtual_page)
-{
-  PageDirEntry *page_directory = (PageDirEntry *) getIdentAddressOfPPN(page_dir_page_);
-  uint32 pde_vpn = virtual_page / PAGE_TABLE_ENTRIES;
-  uint32 pte_vpn = virtual_page % PAGE_TABLE_ENTRIES;
-
-  assert(!page_directory[pde_vpn].page.size); // only 4 KiB pages allowed
-  PageTableEntry *pte_base = (PageTableEntry *) getIdentAddressOfPPN(page_directory[pde_vpn].pt.page_table_ppn);
-  if (pte_base[pte_vpn].present)
-  {
-    pte_base[pte_vpn].present = 0;
-    PageManager::instance()->freePage(pte_base[pte_vpn].page_ppn);
-  }
-  checkAndRemovePT(pde_vpn);
-}
-
-void ArchMemory::insertPT(uint32 pde_vpn, uint32 physical_page_table_page)
-{
-  PageDirEntry *page_directory = (PageDirEntry *) getIdentAddressOfPPN(page_dir_page_);
-  ArchCommon::bzero(getIdentAddressOfPPN(physical_page_table_page),PAGE_SIZE);
-  page_directory[pde_vpn].pt.writeable = 1;
-  page_directory[pde_vpn].pt.size = 0;
-  page_directory[pde_vpn].pt.page_table_ppn = physical_page_table_page;
-  page_directory[pde_vpn].pt.user_access = 1;
-  page_directory[pde_vpn].pt.present = 1;
-}
-
-void ArchMemory::mapPage(uint32 virtual_page, uint32 physical_page, uint32 user_access, uint32 page_size)
-{
-  //kprintfd("ArchMemory::mapPage: pys1 %x, pyhs2 %x\n",physical_page_directory_page, physical_page);
-  PageDirEntry *page_directory = (PageDirEntry *) getIdentAddressOfPPN(page_dir_page_);
-  uint32 pde_vpn = virtual_page / PAGE_TABLE_ENTRIES;
-  uint32 pte_vpn = virtual_page % PAGE_TABLE_ENTRIES;
-
-  if (page_size==PAGE_SIZE)
-  {
-    if (page_directory[pde_vpn].pt.present == 0)
-      insertPT(pde_vpn,PageManager::instance()->getFreePhysicalPage());
-
-    PageTableEntry *pte_base = (PageTableEntry *) getIdentAddressOfPPN(page_directory[pde_vpn].pt.page_table_ppn);
-    pte_base[pte_vpn].writeable = 1;
-    pte_base[pte_vpn].user_access = user_access;
-    pte_base[pte_vpn].page_ppn = physical_page;
-    pte_base[pte_vpn].present = 1;
-  }
-  else
-    assert(false);
-}
-
-
-// only free pte's < PAGE_TABLE_ENTRIES/2 because we do NOT
-// want to free Kernel Pages
+// only free pte's < PAGE_TABLE_ENTRIES/2 because we do NOT want to free Kernel Pages
 ArchMemory::~ArchMemory()
 {
   debug ( A_MEMORY,"ArchMemory::~ArchMemory(): Freeing page directory %x\n",page_dir_page_ );
@@ -110,23 +42,79 @@ ArchMemory::~ArchMemory()
       {
         if (pte_base[pte_vpn].present)
         {
-          pte_base[pte_vpn].present = 0;
-          PageManager::instance()->freePage(pte_base[pte_vpn].page_ppn);
+          unmapPage(pde_vpn * PAGE_TABLE_ENTRIES + pte_vpn);
         }
       }
-      page_directory[pde_vpn].pt.present=0;
-      PageManager::instance()->freePage(page_directory[pde_vpn].pt.page_table_ppn);
     }
   }
-  PageManager::instance()->freePage(page_dir_page_);
+  PageManager::instance()->freePPN(page_dir_page_);
+}
+
+void ArchMemory::checkAndRemovePT(uint32 pde_vpn)
+{
+  PageDirEntry *page_directory = (PageDirEntry *) getIdentAddressOfPPN(page_dir_page_);
+  PageTableEntry *pte_base = (PageTableEntry *) getIdentAddressOfPPN(page_directory[pde_vpn].pt.page_table_ppn);
+  assert(page_directory[pde_vpn].page.size == 0);
+
+  assert(page_directory[pde_vpn].pt.present);
+  assert(!page_directory[pde_vpn].page.size);
+
+  for (uint32 pte_vpn=0; pte_vpn < PAGE_TABLE_ENTRIES; ++pte_vpn)
+    if (pte_base[pte_vpn].present > 0)
+      return; //not empty -> do nothing
+
+  //else:
+  page_directory[pde_vpn].pt.present = 0;
+  PageManager::instance()->freePPN(page_directory[pde_vpn].pt.page_table_ppn);
+}
+
+void ArchMemory::unmapPage(uint32 virtual_page)
+{
+  RESOLVEMAPPING(page_dir_page_,virtual_page);
+
+  assert(page_directory[pde_vpn].pt.present);
+  assert(!page_directory[pde_vpn].page.size); // only 4 KiB pages allowed
+
+  PageTableEntry *pte_base = (PageTableEntry *) getIdentAddressOfPPN(page_directory[pde_vpn].pt.page_table_ppn);
+  assert(pte_base[pte_vpn].present);
+  pte_base[pte_vpn].present = 0;
+  PageManager::instance()->freePPN(pte_base[pte_vpn].page_ppn);
+  checkAndRemovePT(pde_vpn);
+}
+
+void ArchMemory::insertPT(uint32 pde_vpn, uint32 physical_page_table_page)
+{
+  PageDirEntry *page_directory = (PageDirEntry *) getIdentAddressOfPPN(page_dir_page_);
+  assert(!page_directory[pde_vpn].pt.present);
+  memset((void*)getIdentAddressOfPPN(physical_page_table_page), 0, PAGE_SIZE);
+  page_directory[pde_vpn].pt.writeable = 1;
+  page_directory[pde_vpn].pt.size = 0;
+  page_directory[pde_vpn].pt.page_table_ppn = physical_page_table_page;
+  page_directory[pde_vpn].pt.user_access = 1;
+  page_directory[pde_vpn].pt.present = 1;
+}
+
+void ArchMemory::mapPage(uint32 virtual_page, uint32 physical_page, uint32 user_access, uint32 page_size)
+{
+  RESOLVEMAPPING(page_dir_page_,virtual_page);
+
+  assert(page_size == PAGE_SIZE);
+
+  if (page_directory[pde_vpn].pt.present == 0)
+    insertPT(pde_vpn,PageManager::instance()->allocPPN());
+
+  PageTableEntry *pte_base = (PageTableEntry *) getIdentAddressOfPPN(page_directory[pde_vpn].pt.page_table_ppn);
+  assert(!pte_base[pte_vpn].present);
+  pte_base[pte_vpn].writeable = 1;
+  pte_base[pte_vpn].user_access = user_access;
+  pte_base[pte_vpn].page_ppn = physical_page;
+  pte_base[pte_vpn].present = 1;
 }
 
 bool ArchMemory::checkAddressValid(uint32 vaddress_to_check)
 {
-  PageDirEntry *page_directory = (PageDirEntry *) getIdentAddressOfPPN(page_dir_page_);
   uint32 virtual_page = vaddress_to_check / PAGE_SIZE;
-  uint32 pde_vpn = virtual_page / PAGE_TABLE_ENTRIES;
-  uint32 pte_vpn = virtual_page % PAGE_TABLE_ENTRIES;
+  RESOLVEMAPPING(page_dir_page_,virtual_page);
   if (page_directory[pde_vpn].pt.present)
   {
     if (page_directory[pde_vpn].page.size)
@@ -144,8 +132,7 @@ bool ArchMemory::checkAddressValid(uint32 vaddress_to_check)
 
 uint32 ArchMemory::get_PPN_Of_VPN_In_KernelMapping(uint32 virtual_page, uint32 *physical_page, uint32 *physical_pte_page)
 {
-  PageDirEntry *page_directory = &kernel_page_directory_start;
-  //uint32 virtual_page = vaddress_to_check / PAGE_SIZE;
+  PageDirEntry *page_directory = kernel_page_directory;
   uint32 pde_vpn = virtual_page / PAGE_TABLE_ENTRIES;
   uint32 pte_vpn = virtual_page % PAGE_TABLE_ENTRIES;
   if (page_directory[pde_vpn].pt.present) //the present bit is the same for 4k and 4m
@@ -176,6 +163,16 @@ uint32 ArchMemory::get_PPN_Of_VPN_In_KernelMapping(uint32 virtual_page, uint32 *
 uint32 ArchMemory::getRootOfPagingStructure()
 {
   return page_dir_page_;
+}
+
+PageDirEntry* ArchMemory::getRootOfKernelPagingStructure()
+{
+  return kernel_page_directory;
+}
+
+uint32 ArchMemory::getValueForCR3()
+{
+  return page_dir_page_ * PAGE_SIZE;
 }
 
 pointer ArchMemory::getIdentAddressOfPPN(uint32 ppn, uint32 page_size /* optional */)

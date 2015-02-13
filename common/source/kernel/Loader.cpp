@@ -3,33 +3,48 @@
  */
 
 #include "Loader.h"
-#include "console/kprintf.h"
+#include "kprintf.h"
 #include "ArchThreads.h"
-#include "mm/PageManager.h"
+#include "PageManager.h"
 #include "ArchMemory.h"
-#include "ArchCommon.h"
+#include "kstring.h"
 #include "ArchInterrupts.h"
 #include "Syscall.h"
-#include "fs/VfsSyscall.h"
-#include <ustl/uvector.h>
+#include "VfsSyscall.h"
+#include <uvector.h>
+#include "backtrace.h"
+#include "Stabs2DebugInfo.h"
+#include <umemory.h>
+#include "File.h"
+#include "FileDescriptor.h"
 
+extern VfsSyscall vfs_syscall;
 
 Loader::Loader ( ssize_t fd, Thread *thread ) : fd_ ( fd ),
-    thread_ ( thread ), hdr_(0), phdrs_(), load_lock_("Loader::load_lock_")
+    thread_ ( thread ), hdr_(0), phdrs_(), load_lock_("Loader::load_lock_"),
+    userspace_debug_info_(0)
 {
 }
 
 Loader::~Loader()
 {
+  delete userspace_debug_info_;
   delete hdr_;
 }
 
 
 void Loader::initUserspaceAddressSpace()
 {
-  size_t page_for_stack = PageManager::instance()->getFreePhysicalPage();
+  size_t page_for_stack = PageManager::instance()->allocPPN();
 
   arch_memory_.mapPage(1024*512-1, page_for_stack, 1); // (1024 * 512 - 1) * 4 KiB is exactly 2GiB - 4KiB
+}
+
+
+bool Loader::readFromBinary (char* buffer, l_off_t position, size_t count)
+{
+  VfsSyscall::lseek(fd_, position, File::SEEK_SET);
+  return VfsSyscall::read(fd_, buffer, count) - (int32)count;
 }
 
 bool Loader::readHeaders()
@@ -39,30 +54,26 @@ bool Loader::readHeaders()
 
   hdr_ = new Elf::Ehdr;
 
-  VfsSyscall::instance()->lseek(currentThread->getWorkingDirInfo(), fd_, 0, SEEK_SET);
-  if(!hdr_ || VfsSyscall::instance()->read(currentThread->getWorkingDirInfo(), fd_, reinterpret_cast<char*>(hdr_),
+  VfsSyscall::lseek(fd_, 0, File::SEEK_SET);
+  if(!hdr_ || VfsSyscall::read(fd_, reinterpret_cast<char*>(hdr_),
               sizeof(Elf::Ehdr)) != sizeof(Elf::Ehdr))
   {
     return false;
   }
 
-  if (!Elf::headerCorrect(hdr_))
   //checking elf-magic-numbers, format (32/64bit) and a few more things
-  {
+  if (!Elf::headerCorrect(hdr_))
     return false;
-  }
+
 
   if(sizeof(Elf::Phdr) != hdr_->e_phentsize)
   {
+    debug(LOADER, "Expected program header size does not match advertised program header size\n");
     return false;
   }
 
   phdrs_.resize(hdr_->e_phnum, true);
-
-  VfsSyscall::instance()->lseek(currentThread->getWorkingDirInfo(), fd_, hdr_->e_phoff, SEEK_SET);
-
-  if(VfsSyscall::instance()->read(currentThread->getWorkingDirInfo(), fd_, reinterpret_cast<char*>(&phdrs_[0]), hdr_->e_phnum*sizeof(Elf::Phdr))
-      != static_cast<ssize_t>(sizeof(Elf::Phdr)*hdr_->e_phnum))
+  if(readFromBinary(reinterpret_cast<char*>(&phdrs_[0]), hdr_->e_phoff, hdr_->e_phnum*sizeof(Elf::Phdr)))
   {
     return false;
   }
@@ -83,6 +94,9 @@ bool Loader::loadExecutableAndInitProcess()
   if ( isDebugEnabled ( LOADER ) )
     Elf::printElfHeader ( *hdr_ );
 
+  if (isDebugEnabled(USERTRACE))
+    loadDebugInfoIfAvailable();
+
   ArchThreads::createThreadInfosUserspaceThread (
         thread_->user_arch_thread_info_,
         hdr_->e_entry,
@@ -102,9 +116,6 @@ struct PagePart
   size_t length;
 };
 
-#define ADDRESS_BETWEEN(Value, LowerBound, UpperBound) \
-  ((((size_t)Value) >= ((size_t)LowerBound)) && (((size_t)Value) < ((size_t)UpperBound)))
-
 void Loader::loadOnePageSafeButSlow ( pointer virtual_address )
 {
   size_t virtual_page = virtual_address / PAGE_SIZE;
@@ -117,7 +128,7 @@ void Loader::loadOnePageSafeButSlow ( pointer virtual_address )
     return;
   }
 
-  debug ( LOADER,"loadOnePageSafeButSlow: going to load virtual page %d (virtual_address=%d) for %d:%s\n",virtual_page,virtual_address,currentThread->getPID(),currentThread->getName() );
+  debug ( LOADER,"loadOnePageSafeButSlow: going to load virtual page %d (virtual_address=%d) for %d:%s\n",virtual_page,virtual_address,currentThread->getTID(),currentThread->getName() );
 
   debug ( LOADER,"loadOnePage: Num ents: %d\n",hdr_->e_phnum );
   debug ( LOADER,"loadOnePage: Entry: %x\n",hdr_->e_entry );
@@ -141,7 +152,7 @@ void Loader::loadOnePageSafeButSlow ( pointer virtual_address )
       {
         Elf::Phdr& h = phdrs_[k];
 
-        debug ( LOADER,"loadOnePage: PHdr[%d].vaddr=%x .paddr=%x .type=%x .memsz=%x .filez=%x .poff=%x\r\n",k,h.p_vaddr,h.p_paddr,h.p_type,h.p_memsz,h.p_filesz,h.p_offset );
+        debug ( LOADER,"loadOnePage: PHdr[%d].vaddr=%x .paddr=%x .type=%x .flags=%x .memsz=%x .filez=%x .poff=%x\r\n",k,h.p_vaddr,h.p_paddr,h.p_type,h.p_flags,h.p_memsz,h.p_filesz,h.p_offset );
 
         if (ADDRESS_BETWEEN(load_byte_from_address, h.p_paddr, h.p_paddr + h.p_filesz))
         {
@@ -206,8 +217,8 @@ void Loader::loadOnePageSafeButSlow ( pointer virtual_address )
   if(max_value == 0 && min_value == 0xffffffff)
   {
     debug(LOADER, "%x is in .bss\n", virtual_address);
-    page = PageManager::instance()->getFreePhysicalPage();
-    ArchCommon::bzero ( ArchMemory::getIdentAddressOfPPN ( page ),PAGE_SIZE,false );
+    page = PageManager::instance()->allocPPN();
+    memset((void*)ArchMemory::getIdentAddressOfPPN(page), 0, PAGE_SIZE);
     arch_memory_.mapPage(virtual_page, page, true);
     return;
   }
@@ -236,14 +247,14 @@ void Loader::loadOnePageSafeButSlow ( pointer virtual_address )
   }
 
 
-  VfsSyscall::instance()->lseek(currentThread->getWorkingDirInfo(), fd_, min_value, SEEK_SET);
-  ssize_t bytes_read = VfsSyscall::instance()->read(currentThread->getWorkingDirInfo(), fd_, (char*)buffer, max_value - min_value);
+  VfsSyscall::lseek(fd_, min_value, File::SEEK_SET);
+  ssize_t bytes_read = VfsSyscall::read(fd_, (char*)buffer, max_value - min_value);
 
   if(bytes_read != static_cast<ssize_t>(max_value - min_value))
   {
     if (bytes_read == -1)
     {
-      if (FileDescriptor::getFileDescriptor(fd_) == NULL)
+      if (VfsSyscall::getFileDescriptor(fd_) == 0)
       {
         kprintfd("Loader::loadOnePageSafeButSlow: ERROR cannot read from a closed file descriptor\n");
         assert(false);
@@ -256,9 +267,9 @@ void Loader::loadOnePageSafeButSlow ( pointer virtual_address )
     load_lock_.release();
     Syscall::exit ( 9998 );
    }
-  page = PageManager::instance()->getFreePhysicalPage();
+  page = PageManager::instance()->allocPPN();
   debug(PM, "got new page %x\n", page);
-  ArchCommon::bzero ( ArchMemory::getIdentAddressOfPPN ( page ),PAGE_SIZE,false );
+  memset((void*)ArchMemory::getIdentAddressOfPPN(page), 0, PAGE_SIZE);
   debug(PM, "bzero!\n");
   uint8* dest = reinterpret_cast<uint8*> (ArchMemory::getIdentAddressOfPPN ( page ));
   debug(PM, "copying %d elements\n", byte_map.size());
@@ -282,3 +293,111 @@ void Loader::loadOnePageSafeButSlow ( pointer virtual_address )
   debug ( PM,"loadOnePageSafeButSlow: wrote a total of %d bytes\n",written );
 
 }
+
+
+bool Loader::loadDebugInfoIfAvailable()
+{
+  debug(USERTRACE, "loadDebugInfoIfAvailable start\n");
+  if (sizeof(Elf::Shdr) != hdr_->e_shentsize)
+  {
+    debug(USERTRACE, "Expected section header size does not match advertised section header size\n");
+    return false;
+  }
+
+  ustl::vector<Elf::Shdr> section_headers;
+  section_headers.resize(hdr_->e_shnum, true);
+  if (readFromBinary(reinterpret_cast<char*>(&section_headers[0]), hdr_->e_shoff, hdr_->e_shnum*sizeof(Elf::Shdr)))
+  {
+    debug(USERTRACE, "Failed to load section headers!\n");
+    return false;
+  }
+
+
+  // now that we have loaded the section headers, we want to find and load the section that contains
+  // the section names
+  // in the simple case this section name section is only 0xFF00 bytes long, in that case
+  // loading is simple. we only support this case for now
+
+
+  size_t section_name_section = hdr_->e_shstrndx;
+  size_t section_name_size = section_headers[section_name_section].sh_size;
+  ustl::vector<char> section_names(section_name_size);
+
+  if (readFromBinary(&section_names[0], section_headers[section_name_section].sh_offset, section_name_size ))
+  {
+    debug(USERTRACE, "Failed to load section name section\n");
+    return false;
+  }
+
+
+  // now that we have names we read through all the sections
+  // and load the two we're interested in
+
+  char *stab_data=0;
+  char *stabstr_data=0;
+  size_t stab_data_size=0;
+
+  for (Elf::Shdr const &section: section_headers)
+  {
+    if (section.sh_name)
+    {
+      if (!strcmp(&section_names[section.sh_name], ".stab"))
+      {
+        debug(USERTRACE, "Found stab section, index is %d\n", section.sh_name);
+        if (stab_data)
+        {
+          debug(USERTRACE, "Already loaded the stab section?, skipping\n");
+        }
+        else
+        {
+          size_t size = section.sh_size;
+          stab_data = new char[size];
+          stab_data_size = size;
+          if (readFromBinary(stab_data, section.sh_offset, size))
+          {
+            debug(USERTRACE, "Failed to load stab section!\n");
+            delete[] stab_data;
+            stab_data=0;
+          }
+        }
+      }
+      if (!strcmp(&section_names[section.sh_name], ".stabstr"))
+      {
+        debug(USERTRACE, "Found stabstr section, index is %d\n", section.sh_name);
+        if (stabstr_data)
+        {
+          debug(USERTRACE, "Already loaded the stabstr section?, skipping\n");
+        }
+        else
+        {
+          size_t size = section.sh_size;
+          stabstr_data = new char[size];
+          if (readFromBinary(stabstr_data, section.sh_offset, size))
+          {
+            debug(USERTRACE, "Failed to load stabstr section!\n");
+            delete[] stabstr_data;
+            stabstr_data=0;
+          }
+        }
+      }
+    }
+  }
+
+  if (!stab_data || !stabstr_data)
+  {
+    delete[] stab_data;
+    delete[] stabstr_data;
+    debug(USERTRACE, "Failed to load necessary debug data!\n");
+    return false;
+  }
+
+  userspace_debug_info_ = new Stabs2DebugInfo(stab_data, stab_data + stab_data_size, stabstr_data);
+
+  return true;
+}
+
+Stabs2DebugInfo const *Loader::getDebugInfos()const
+{
+  return userspace_debug_info_;
+}
+

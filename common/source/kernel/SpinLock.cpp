@@ -1,9 +1,5 @@
-/**
- * @file SpinLock.cpp
- */
-
 #include "SpinLock.h"
-#include "console/kprintf.h"
+#include "kprintf.h"
 #include "ArchThreads.h"
 #include "ArchInterrupts.h"
 #include "panic.h"

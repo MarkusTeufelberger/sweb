@@ -16,7 +16,7 @@
 #ifndef _ARCH_INTERRUPTS_H_
 #define _ARCH_INTERRUPTS_H_
 
-#define IO_TIMEOUT 200000
+#define IO_TIMEOUT (400000)
 
 #include "types.h"
 
@@ -95,7 +95,6 @@ public:
    * @return bool true if Interrupts are enabled, false otherwise
    */
   static bool testIFSet();
-  //static void setOldInterruptState(uint32 const &flags);
 
   /**
    * yields if the IF Flag is set, else does hlt

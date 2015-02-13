@@ -1,19 +1,11 @@
-/**
- * @file init_boottime_pagetables.cpp
- *
- */
-
 #include "types.h"
-#include "boot-time.h"
 #include "paging-definitions.h"
 #include "offsets.h"
-#include "ArchCommon.h"
-#include "kprintf.h"
 #include "init_boottime_pagetables.h"
 
-void initialiseBootTimePaging()
+extern "C" void initialiseBootTimePaging()
 {
-  page_directory_entry *pde_start = (page_directory_entry*)(((void*)kernel_page_directory_start) - PHYSICAL_TO_VIRTUAL_OFFSET);
+  PageDirEntry *pde_start = (PageDirEntry*)(((char*)kernel_page_directory) - PHYSICAL_TO_VIRTUAL_OFFSET);
 
   uint32 i;
   // clear the page dir
@@ -21,26 +13,26 @@ void initialiseBootTimePaging()
     *((uint32*)pde_start) = 0;
   // 1 : 1 mapping of the first 8 mbs
   for (i = 0; i < 8; ++i)
-    mapPage(pde_start, i, i);
+    mapBootTimePage(pde_start, i, i);
   // map first 4 mb for kernel
   for (i = 0; i < 4; ++i)
-    mapPage(pde_start, 2048 + i, i);
+    mapBootTimePage(pde_start, 2048 + i, i);
   // 3gb 1:1 mapping
   for (i = 0; i < 1024; ++i)
-    mapPage(pde_start, 3072 + i, i);
+    mapBootTimePage(pde_start, 3072 + i, i);
   // map devices from 0x81000000 upwards
-  mapPage(pde_start,0x860,0x202);  // pl011
-  mapPage(pde_start,0x8C0,0x203);  // emmc
-  mapPage(pde_start,0x900,0x200);  // most devices (ic, timer, gpu, ...)
+  mapBootTimePage(pde_start,0x860,0x202);  // pl011
+  mapBootTimePage(pde_start,0x8C0,0x203);  // emmc
+  mapBootTimePage(pde_start,0x900,0x200);  // most devices (ic, timer, gpu, ...)
 
-  mapPage(pde_start,0x909,0x209);  // map for csud
+  mapBootTimePage(pde_start,0x909,0x209);  // map for csud
 
   for (i = 0; i < 8; ++i)
-    mapPage(pde_start,0xb00 + i,0x5c0 +i);  // framebuffer TODO: this might be not necessary
+    mapBootTimePage(pde_start,0xb00 + i,0x5c0 +i);  // framebuffer TODO: this might be not necessary
   // still plenty of room for more memory mapped devices
 }
 
-void removeBootTimeIdentMapping()
+extern "C" void removeBootTimeIdentMapping()
 {
   // we will not remove anything because we need the first 8 mb 1:1 mapped
 }

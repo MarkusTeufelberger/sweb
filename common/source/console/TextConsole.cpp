@@ -9,39 +9,40 @@
 
 #include "Scheduler.h"
 
-#include "arch_keyboard_manager.h"
+#include "KeyboardManager.h"
 #include "kprintf.h"
+#include "kstring.h"
 
-TextConsole::TextConsole ( uint32 num_terminals ) :Console ( num_terminals, "TxTConsoleThrd")
+TextConsole::TextConsole(uint32 num_terminals) :
+    Console(num_terminals, "TxTConsoleThrd")
 {
   uint32 i, j = 10, log = 1, k = 0, l = 0;
 
-  while ( num_terminals / j )
+  while (num_terminals / j)
   {
     j *= 10;
     log++;
   }
 
-  char term_name[ log + 5 ];
-  term_name[ 0 ] = 't';
-  term_name[ 1 ] = 'e';
-  term_name[ 2 ] = 'r';
-  term_name[ 3 ] = 'm';
-  term_name[ log + 4 ] = 0;
+  char term_name[log + 5];
+  term_name[0] = 't';
+  term_name[1] = 'e';
+  term_name[2] = 'r';
+  term_name[3] = 'm';
+  term_name[log + 4] = 0;
 
-  for ( i=0;i<num_terminals;++i )
+  for (i = 0; i < num_terminals; ++i)
   {
     uint32 cterm = i;
-    for ( l = 4, k = j/10; k > 0 ; k /= 10, l++ )
+    for (l = 4, k = j / 10; k > 0; k /= 10, l++)
     {
-      term_name[ l ] = cterm/k + '0';
-      cterm -= ( ( cterm/k ) * k );
+      term_name[l] = cterm / k + '0';
+      cterm -= ((cterm / k) * k);
     }
-    
-    Terminal *term = new Terminal ( term_name, this,consoleGetNumColumns(),consoleGetNumRows() );
-    terminals_.push_back ( term );
-  }
 
+    Terminal *term = new Terminal(term_name, this, consoleGetNumColumns(), consoleGetNumRows());
+    terminals_.push_back(term);
+  }
 
   active_terminal_ = 0;
 }
@@ -58,19 +59,20 @@ uint32 TextConsole::consoleGetNumColumns() const
 
 void TextConsole::consoleClearScreen()
 {
-  char *fb = ( char* ) ArchCommon::getFBPtr();
+  char *fb = (char*) ArchCommon::getFBPtr();
   uint32 i;
-  for ( i=0;i<consoleGetNumRows() *consoleGetNumColumns() *2;++i )
+  for (i = 0; i < consoleGetNumRows() * consoleGetNumColumns() * 2; ++i)
   {
-    fb[i]=0;
+    fb[i] = 0;
   }
 }
 
-uint32 TextConsole::consoleSetCharacter ( uint32 const &row, uint32 const&column, uint8 const &character, uint8 const &state )
+uint32 TextConsole::consoleSetCharacter(uint32 const &row, uint32 const&column, uint8 const &character,
+                                        uint8 const &state)
 {
-  char *fb = ( char* ) ArchCommon::getFBPtr();
-  fb[ ( column + row*consoleGetNumColumns() ) *2] = character;
-  fb[ ( column + row*consoleGetNumColumns() ) *2+1] = state;
+  char *fb = (char*) ArchCommon::getFBPtr();
+  fb[(column + row * consoleGetNumColumns()) * 2] = character;
+  fb[(column + row * consoleGetNumColumns()) * 2 + 1] = state;
 
   return 0;
 }
@@ -78,50 +80,19 @@ uint32 TextConsole::consoleSetCharacter ( uint32 const &row, uint32 const&column
 void TextConsole::consoleScrollUp()
 {
   pointer fb = ArchCommon::getFBPtr();
-  ArchCommon::memcpy ( fb, fb+ ( consoleGetNumColumns() *2 ),
-                       ( consoleGetNumRows()-1 ) *consoleGetNumColumns() *2 );
-  ArchCommon::bzero ( fb+ ( ( consoleGetNumRows()-1 ) *consoleGetNumColumns() *2 ),consoleGetNumColumns() *2 );
+  memcpy((void*) fb, (void*) (fb + (consoleGetNumColumns() * 2)),
+         (consoleGetNumRows() - 1) * consoleGetNumColumns() * 2);
+  memset((void*) (fb + ((consoleGetNumRows() - 1)) * consoleGetNumColumns() * 2), 0, consoleGetNumColumns() * 2);
 }
 
-
-
-void TextConsole::consoleSetForegroundColor ( FOREGROUNDCOLORS const &color )
+void TextConsole::consoleSetForegroundColor(FOREGROUNDCOLORS const &color)
 {
-  if ( color )
+  if (color)
     return;
 }
 
-void TextConsole::consoleSetBackgroundColor ( BACKGROUNDCOLORS const &color )
+void TextConsole::consoleSetBackgroundColor(BACKGROUNDCOLORS const &color)
 {
-  if ( color )
+  if (color)
     return;
-}
-
-void TextConsole::Run ( void )
-{
-  KeyboardManager * km = KeyboardManager::instance();
-  uint32 key= ( uint32 )-1;
-  do
-  {
-    while ( km->getKeyFromKbd ( key ) )
-      if ( isDisplayable ( key ) )
-      {
-        key = terminals_[active_terminal_]->remap ( key );
-        terminals_[active_terminal_]->write ( key );
-        terminals_[active_terminal_]->putInBuffer ( key );
-      }
-      else
-        handleKey ( key );
-    Scheduler::instance()->yield();
-    if ( key== ( uint32 )-1 )
-      km->emptyKbdBuffer();
-    //we assume above here, that irq1 has never been fired, presumeably because
-    //something was in the kbd buffer bevore irq1 got enabled
-  }
-  while ( 1 ); // until the end of time
-}
-
-bool TextConsole::isDisplayable ( uint32 key )
-{
-  return ( ( ( key & 127 ) >= ' ' ) || ( key == '\n' ) || ( key == '\b' ) );
 }

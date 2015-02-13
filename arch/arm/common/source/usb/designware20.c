@@ -10,6 +10,7 @@
 *
 *	THIS SOFTWARE IS NOT AFFILIATED WITH NOR ENDORSED BY SYNOPSYS IP.
 ******************************************************************************/
+#include <board_constants.h>
 #include <hcd/hcd.h>
 #include <types.h>
 #include <usbd/device.h>
@@ -17,20 +18,11 @@
 #include <usbd/pipe.h>
 #include <usbd/usbd.h>
 
-#ifndef HCD_DESIGNWARE_BASE
-#error Missing required definition HCD_DESIGNWARE_BASE. Should be of the form ((void*)0xhhhhhhhh). Should be defined after HCD_DESIGNWARE_20 in the platform.
-#endif
-
 volatile struct CoreGlobalRegs *CorePhysical, *Core = NULL;
 volatile struct HostGlobalRegs *HostPhysical, *Host = NULL;
 volatile struct PowerReg *PowerPhysical, *Power = NULL;
 bool PhyInitialised = false;
 u8* databuffer = NULL;
-
-void DwcLoad() 
-{
-	LOG_DEBUG("CSUD: DesignWare Hi-Speed USB 2.0 On-The-Go (HS OTG) Controller driver version 0.1\n"); 
-}
 
 void WriteThroughReg(volatile const void* reg) {
 	WriteThroughRegMask(reg, 0);
@@ -341,7 +333,7 @@ Result HcdChannelInterruptToError(struct UsbDevice *device, struct ChannelInterr
 }
 
 Result HcdChannelSendWaitOne(struct UsbDevice *device, 
-	struct UsbPipeAddress *pipe, u8 channel, void* buffer, u32 bufferLength, u32 bufferOffset,
+	struct UsbPipeAddress *pipe, u8 channel, void* buffer, u32 bufferLength __attribute__((unused)), u32 bufferOffset,
 	struct UsbDeviceRequest *request) {
 	Result result;
 	u32 timeout, tries, globalTries, actualTries;
@@ -598,7 +590,6 @@ Result HcdInitialise() {
 	PowerPhysical = MemoryReserve(sizeof(struct PowerReg), (void*)((u8*)HCD_DESIGNWARE_BASE + 0xe00));
 	Power = MemoryAllocate(sizeof(struct PowerReg));
 
-#ifdef BROADCOM_2835
 	ReadBackReg(&Core->VendorId);
 	ReadBackReg(&Core->UserId);
 	if ((Core->VendorId & 0xfffff000) != 0x4f542000) { // 'OT'2 
@@ -617,21 +608,6 @@ Result HcdInitialise() {
 			(Core->VendorId >> 4) & 0xf, (Core->VendorId >> 0) & 0xf, 
 			(Core->UserId >> 12) & 0xFFFFF);
 	}
-#else
-	if ((Core->VendorId & 0xfffff000) != 0x4f542000) { // 'OT'2 
-		LOGF("HCD: Hardware: %c%c%x.%x%x%x. Driver incompatible. Expected OT2.xxx.\n",
-			(Core->VendorId >> 24) & 0xff, (Core->VendorId >> 16) & 0xff,
-			(Core->VendorId >> 12) & 0xf, (Core->VendorId >> 8) & 0xf,
-			(Core->VendorId >> 4) & 0xf, (Core->VendorId >> 0) & 0xf);
-		return ErrorIncompatible;
-	}
-	else {
-		LOGF("HCD: Hardware: %c%c%x.%x%x%x.\n",
-			(Core->VendorId >> 24) & 0xff, (Core->VendorId >> 16) & 0xff,
-			(Core->VendorId >> 12) & 0xf, (Core->VendorId >> 8) & 0xf,
-			(Core->VendorId >> 4) & 0xf, (Core->VendorId >> 0) & 0xf);
-	}
-#endif
 
 	ReadBackReg(&Core->Hardware);
 	if (Core->Hardware.Architecture != InternalDma) {

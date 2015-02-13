@@ -1,12 +1,8 @@
-
 #ifndef TERMINAL_H__
 #define TERMINAL_H__
 
 #include "types.h"
 #include "Console.h"
-#include "Thread.h"
-#include "FiFo.h"
-
 #include "chardev.h"
 
 /**
@@ -24,8 +20,7 @@ class Terminal : public CharacterDevice
      */
     enum LAYOUTS
     {
-        EN = 0,
-        DE = 1
+      EN = 0, DE = 1
     };
 
     static uint32 const TERMINAL_BUFFER_SIZE = 256;
@@ -38,26 +33,26 @@ class Terminal : public CharacterDevice
      * @param num_rows the number of rows
      * @return the Terminal instance
      */
-    Terminal ( char *name, Console *console, uint32 num_columns, uint32 num_rows );
+    Terminal(char *name, Console *console, uint32 num_columns, uint32 num_rows);
 
     /**
      * Writes the character to the terminal.
      * @param character the character to write
      */
-    void write ( char character );
+    void write(char character);
 
     /**
      * Writes a string to the terminal.
      * @param string the string to write
      */
-    void writeString ( char const *string );
+    void writeString(char const *string);
 
     /**
      * Writes a buffer with the given length to the terminal.
      * @param buffer the buffer to write
      * @param len the buffer's length
      */
-    void writeBuffer ( char const *buffer, size_t len );
+    void writeBuffer(char const *buffer, size_t len);
 
     /**
      * Writes Data starting at the offset from the buffer with the given length to the terminal.
@@ -66,19 +61,10 @@ class Terminal : public CharacterDevice
      * @param buffer the buffer to write
      * @return the size
      */
-    virtual int32 writeData ( uint32 offset, uint32 size, const char*buffer );
+    virtual int32 writeData(uint32 offset, uint32 size, const char*buffer);
 
-    /**
-     * Sets the foregroundcolor of the terminal.
-     * @param color the color to set
-     */
-    void setForegroundColor ( Console::FOREGROUNDCOLORS const &color );
-
-    /**
-     * Sets the backgroundcolor of the terminal.
-     * @param color the color to set
-     */
-    void setBackgroundColor ( Console::BACKGROUNDCOLORS const &color );
+    void setForegroundColor(Console::FOREGROUNDCOLORS const &color);
+    void setBackgroundColor(Console::BACKGROUNDCOLORS const &color);
 
     /**
      * Reads one character.from the input
@@ -92,7 +78,7 @@ class Terminal : public CharacterDevice
      * @param size the number of characters to read
      * @return the number of chracters read
      */
-    uint32 readLine ( char *line, uint32 size );
+    uint32 readLine(char *line, uint32 size);
 
     /**
      * Reads the given number of characters from the input or until the end of line.
@@ -101,7 +87,7 @@ class Terminal : public CharacterDevice
      * @param size the number of characters to read
      * @return the number of chracters read
      */
-    uint32 readLineRaw ( char *line, uint32 size );
+    uint32 readLineRaw(char *line, uint32 size);
 
     /**
      * Reads the given number of characters from the input or until the end of line
@@ -110,22 +96,11 @@ class Terminal : public CharacterDevice
      * @param size the number of characters to read
      * @return the number of chracters read
      */
-    uint32 readLineNoBlock ( char *line, uint32 size );
+    uint32 readLineNoBlock(char *line, uint32 size);
 
-    /**
-     * Deletes all input in the buffer
-     */
     void clearBuffer();
+    void putInBuffer(uint32 key);
 
-    /**
-     * Puts a key in the input buffer
-     * @param key the key
-     */
-    void putInBuffer ( uint32 key );
-
-    /**
-     * Handles backspace.
-     */
     void backspace();
 
     /**
@@ -133,18 +108,10 @@ class Terminal : public CharacterDevice
      * @param key the key to remap
      * @return the remaped key
      */
-    uint32 remap ( uint32 key );
+    uint32 remap(uint32 key);
 
-    /**
-     * Sets the terminal layout.
-     * @param layout the layout
-     */
-    void setLayout ( Terminal::LAYOUTS layout );
+    void setLayout(Terminal::LAYOUTS layout);
 
-    /**
-     * Returns if lock is free.
-     * @return true if lock is free
-     */
     bool isLockFree()
     {
       return mutex_.isFree();
@@ -152,14 +119,7 @@ class Terminal : public CharacterDevice
 
   protected:
 
-    /**
-     * Sets the terminal active.
-     */
     void setAsActiveTerminal();
-
-    /**
-     * Sets the terminal inactive.
-     */
     void unSetAsActiveTerminal();
 
   private:
@@ -169,22 +129,9 @@ class Terminal : public CharacterDevice
      * Used internal by write methods.
      * @param character the character to write
      */
-    void writeInternal ( char character );
+    void writeInternal(char character);
 
-    /**
-     * not implemented
-     * @param key not implemented
-     */
-    void handleKey ( uint32 key );
-
-    /**
-     * Clears the terminal screen.
-     */
     void clearScreen();
-
-    /**
-     * Redraws the terminal.
-     */
     void fullRedraw();
 
     /**
@@ -192,7 +139,6 @@ class Terminal : public CharacterDevice
      * @return the number of rows
      */
     uint32 getNumRows() const;
-
 
     /**
      * Returns the number of the terminal's columns.
@@ -207,17 +153,7 @@ class Terminal : public CharacterDevice
      * @param character the character to set
      * @return 0
      */
-    uint32 setCharacter ( uint32 row,uint32 column, uint8 character );
-
-    /**
-     * not implemented
-     */
-    void processInBuffer() {};
-
-    /**
-     * not implemented
-     */
-    void processOutBuffer() {};
+    uint32 setCharacter(uint32 row, uint32 column, uint8 character);
 
     /**
      * Scrolls up the terminal.
@@ -229,14 +165,14 @@ class Terminal : public CharacterDevice
      * @param key the key to check
      * @return true if key is letter
      */
-    bool isLetter ( uint32 key );
+    bool isLetter(uint32 key);
 
     /**
      * Checks if the given key is a number.
      * @param key the key to check
      * @return true if key is a number
      */
-    bool isNumber ( uint32 key );
+    bool isNumber(uint32 key);
 
     Console *console_;
     uint32 num_columns_;
@@ -255,6 +191,5 @@ class Terminal : public CharacterDevice
     LAYOUTS layout_;
 
 };
-
 
 #endif

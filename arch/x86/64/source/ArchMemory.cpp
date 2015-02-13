@@ -7,15 +7,19 @@
 #include "ArchInterrupts.h"
 #include "kprintf.h"
 #include "assert.h"
-#include "ArchCommon.h"
 #include "PageManager.h"
+#include "kstring.h"
+
+PageMapLevel4Entry kernel_page_map_level_4[PAGE_MAP_LEVEL_4_ENTRIES] __attribute__((aligned(0x1000)));
+PageDirPointerTableEntry kernel_page_directory_pointer_table[2 * PAGE_DIR_POINTER_TABLE_ENTRIES] __attribute__((aligned(0x1000)));
+PageDirEntry kernel_page_directory[2 * PAGE_DIR_ENTRIES] __attribute__((aligned(0x1000)));
 
 ArchMemory::ArchMemory()
 {
-  page_map_level_4_ = PageManager::instance()->getFreePhysicalPage();
+  page_map_level_4_ = PageManager::instance()->allocPPN();
   PageMapLevel4Entry* new_pml4 = (PageMapLevel4Entry*) getIdentAddressOfPPN(page_map_level_4_);
-  ArchCommon::memcpy((pointer) new_pml4,(pointer)kernel_page_map_level_4, PAGE_SIZE);
-  bzero(new_pml4,PAGE_SIZE / 2); // should be zero, this is just for safety
+  memcpy((void*)new_pml4, (void*)kernel_page_map_level_4, PAGE_SIZE);
+  memset(new_pml4, 0, PAGE_SIZE / 2); // should be zero, this is just for safety
 }
 
 template<typename T>
@@ -56,7 +60,7 @@ bool ArchMemory::insert(pointer map_ptr, uint64 index, uint64 ppn, uint64 bzero,
   debug(A_MEMORY,"%s: page %x index %x ppn %x user_access %x size %x\n", __PRETTY_FUNCTION__, map, index, ppn, user_access, size);
   if (bzero)
   {
-    ArchCommon::bzero(getIdentAddressOfPPN(ppn), PAGE_SIZE);
+    memset((void*)getIdentAddressOfPPN(ppn), 0, PAGE_SIZE);
     assert(((uint64*)map)[index] == 0);
   }
   map[index].size = size;
@@ -70,12 +74,11 @@ bool ArchMemory::insert(pointer map_ptr, uint64 index, uint64 ppn, uint64 bzero,
 bool ArchMemory::mapPage(uint64 virtual_page, uint64 physical_page, uint64 user_access, uint64 page_size)
 {
   debug(A_MEMORY,"%x %x %x %x %x\n",page_map_level_4_, virtual_page, physical_page, user_access, page_size);
-  PageMapLevel4Entry* pml4p = (PageMapLevel4Entry*) getIdentAddressOfPPN(page_map_level_4_);
   ArchMemoryMapping m = resolveMapping(page_map_level_4_, virtual_page);
 
   if (m.pdpt_ppn == 0)
   {
-    m.pdpt_ppn = PageManager::instance()->getFreePhysicalPage();
+    m.pdpt_ppn = PageManager::instance()->allocPPN();
     insert<PageMapLevel4Entry>((pointer) m.pml4, m.pml4i, m.pdpt_ppn, 1, 0, 1, 1);
   }
 
@@ -88,7 +91,7 @@ bool ArchMemory::mapPage(uint64 virtual_page, uint64 physical_page, uint64 user_
     }
     else
     {
-      m.pd_ppn = PageManager::instance()->getFreePhysicalPage();
+      m.pd_ppn = PageManager::instance()->allocPPN();
       insert<PageDirPointerTablePageDirEntry>(getIdentAddressOfPPN(m.pdpt_ppn), m.pdpti, m.pd_ppn, 1, 0, 1, 1);
     }
   }
@@ -101,7 +104,7 @@ bool ArchMemory::mapPage(uint64 virtual_page, uint64 physical_page, uint64 user_
     }
     else// if (m.pd == 0)
     {
-      m.pt_ppn = PageManager::instance()->getFreePhysicalPage();
+      m.pt_ppn = PageManager::instance()->allocPPN();
       insert<PageDirPageTableEntry>(getIdentAddressOfPPN(m.pd_ppn), m.pdi, m.pt_ppn, 1, 0, 1, 1);
     }
   }
@@ -137,19 +140,19 @@ ArchMemory::~ArchMemory()
                 if (pt[pti].present)
                 {
                   pt[pti].present = 0;
-                  PageManager::instance()->freePage(pt[pti].page_ppn);
+                  PageManager::instance()->freePPN(pt[pti].page_ppn);
                 }
               }
               pd[pdi].pt.present = 0;
-              PageManager::instance()->freePage(pd[pdi].pt.page_ppn);
+              PageManager::instance()->freePPN(pd[pdi].pt.page_ppn);
             }
           }
           pdpt[pdpti].pd.present = 0;
-          PageManager::instance()->freePage(pdpt[pdpti].pd.page_ppn);
+          PageManager::instance()->freePPN(pdpt[pdpti].pd.page_ppn);
         }
       }
       pml4[pml4i].present = 0;
-      PageManager::instance()->freePage(pml4[pml4i].page_ppn);
+      PageManager::instance()->freePPN(pml4[pml4i].page_ppn);
     }
   }
 }
@@ -261,7 +264,7 @@ ArchMemoryMapping ArchMemory::resolveMapping(uint64 pml4,uint64 vpage)
 
 size_t ArchMemory::get_PPN_Of_VPN_In_KernelMapping(size_t virtual_page, size_t *physical_page, size_t *physical_pte_page)
 {
-  ArchMemoryMapping m = resolveMapping(PML4_KERNEL_PAGE, virtual_page);
+  ArchMemoryMapping m = resolveMapping(((uint64)VIRTUAL_TO_PHYSICAL_BOOT(kernel_page_map_level_4) / PAGE_SIZE), virtual_page);
   if (physical_page)
     *physical_page = m.page_ppn;
   if (physical_pte_page)
@@ -272,4 +275,9 @@ size_t ArchMemory::get_PPN_Of_VPN_In_KernelMapping(size_t virtual_page, size_t *
 uint64 ArchMemory::getRootOfPagingStructure()
 {
   return page_map_level_4_;
+}
+
+PageMapLevel4Entry* ArchMemory::getRootOfKernelPagingStructure()
+{
+  return kernel_page_map_level_4;
 }

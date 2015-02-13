@@ -1,16 +1,11 @@
-/**
- * @file ArchThreads.cpp
- *
- */
-
 #include "ArchThreads.h"
-#include "ArchCommon.h"
 #include "ArchMemory.h"
 #include "kprintf.h"
 #include "paging-definitions.h"
 #include "offsets.h"
 #include "assert.h"
 #include "Thread.h"
+#include "kstring.h"
 
 extern PageMapLevel4Entry kernel_page_map_level_4[];
 
@@ -36,8 +31,7 @@ uint32 ArchThreads::getPageDirPointerTable(Thread *thread)
 void ArchThreads::createThreadInfosKernelThread(ArchThreadInfo *&info, pointer start_function, pointer stack)
 {
   info = (ArchThreadInfo*)new uint8[sizeof(ArchThreadInfo)];
-  //kprintfd("info = %x, start_function = %x, stack = %x\n", info, start_function, stack);
-  ArchCommon::bzero((pointer)info,sizeof(ArchThreadInfo));
+  memset((void*)info, 0, sizeof(ArchThreadInfo));
   pointer pml4 = (pointer)VIRTUAL_TO_PHYSICAL_BOOT(kernel_page_map_level_4);
 
   info->cs      = KERNEL_CS;
@@ -62,10 +56,15 @@ void ArchThreads::createThreadInfosKernelThread(ArchThreadInfo *&info, pointer s
   info->fpu[6] = 0xFFFF0000;
 }
 
+void ArchThreads::changeInstructionPointer(ArchThreadInfo *info, pointer function)
+{
+  info->rip = function;
+}
+
 void ArchThreads::createThreadInfosUserspaceThread(ArchThreadInfo *&info, pointer start_function, pointer user_stack, pointer kernel_stack)
 {
   info = (ArchThreadInfo*)new uint8[sizeof(ArchThreadInfo)];
-  ArchCommon::bzero((pointer)info,sizeof(ArchThreadInfo));
+  memset((void*)info, 0, sizeof(ArchThreadInfo));
   pointer pml4 = (pointer)VIRTUAL_TO_PHYSICAL_BOOT(kernel_page_map_level_4);
 
   info->cs      = USER_CS;
@@ -94,13 +93,6 @@ void ArchThreads::createThreadInfosUserspaceThread(ArchThreadInfo *&info, pointe
 
 }
 
-void ArchThreads::cleanupThreadInfos(ArchThreadInfo *&info)
-{
-  //avoid NULL-Pointer
-  if (info)
-    delete info;
-}
-
 void ArchThreads::yield()
 {
   __asm__ __volatile__("int $65"
@@ -109,10 +101,9 @@ void ArchThreads::yield()
   );
 }
 
-extern "C" size_t arch_TestAndSet(size_t new_value, size_t *lock);
 size_t ArchThreads::testSetLock(size_t &lock, size_t new_value)
 {
-  return arch_TestAndSet(new_value, &lock);
+  return __sync_lock_test_and_set(&lock,new_value);
 }
 
 uint32 ArchThreads::atomic_add(uint32 &value, int32 increment)
@@ -131,15 +122,32 @@ int32 ArchThreads::atomic_add(int32 &value, int32 increment)
   return (int32) ArchThreads::atomic_add((uint32 &) value, increment);
 }
 
-void ArchThreads::printThreadRegisters(Thread *thread, uint32 userspace_registers)
+
+void ArchThreads::printThreadRegisters(Thread *thread, bool verbose)
+{
+  printThreadRegisters(thread,0,verbose);
+  printThreadRegisters(thread,1,verbose);
+}
+
+void ArchThreads::printThreadRegisters(Thread *thread, uint32 userspace_registers, bool verbose)
 {
   ArchThreadInfo *info = userspace_registers?thread->user_arch_thread_info_:thread->kernel_arch_thread_info_;
   if (!info)
   {
-    kprintfd("%sThread: %10x, has no %s registers\n",userspace_registers?"Kernel":"  User",thread,userspace_registers ? "userspace" : "kernelspace");
+    kprintfd("%sThread: %18x, has no %s registers\n",userspace_registers?"Kernel":"  User",thread,userspace_registers ? "userspace" : "kernelspace");
     return;
   }
-  kprintfd("%sThread: %10x, info: %10x -- rax: %10x  rbx: %10x  rcx: %10x  rdx: %10x -- rsp: %10x  rbp: %10x  rsp0 %10x -- rip: %10x  rflg: %10x  cr3: %x\n",
-           userspace_registers?"  User":"Kernel",thread,info,info->rax,info->rbx,info->rcx,info->rdx,info->rsp,info->rbp,info->rsp0,info->rip,info->rflags,info->cr3);
-
+  if (verbose)
+  {
+    kprintfd("\t\t%sThread: %18x, info: %18x\n"\
+             "\t\t\t rax: %18x  rbx: %18x  rcx: %18x  rdx: %18x\n"\
+             "\t\t\t rsp: %18x  rbp: %18x  rsp0 %18x  rip: %18x\n"\
+             "\t\t\trflg: %18x  cr3: %x\n",
+             userspace_registers?"  User":"Kernel",thread,info,info->rax,info->rbx,info->rcx,info->rdx,info->rsp,info->rbp,info->rsp0,info->rip,info->rflags,info->cr3);
+  }
+  else
+  {
+    kprintfd("%sThread: %18x, info: %18x -- rax: %18x  rbx: %18x  rcx: %18x  rdx: %18x -- rsp: %18x  rbp: %18x  rsp0 %18x -- rip: %18x  rflg: %18x  cr3: %x\n",
+             userspace_registers?"  User":"Kernel",thread,info,info->rax,info->rbx,info->rcx,info->rdx,info->rsp,info->rbp,info->rsp0,info->rip,info->rflags,info->cr3);
+  }
 }

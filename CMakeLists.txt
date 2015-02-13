@@ -1,8 +1,26 @@
+cmake_minimum_required(VERSION 2.8)
+set(CMAKE_DISABLE_SOURCE_CHANGES ON)
+set(CMAKE_DISABLE_IN_SOURCE_BUILD ON)
 if(COMMAND cmake_policy)
   cmake_policy(VERSION 2.6)
 endif(COMMAND cmake_policy)
-include(MakeOptions)
 
+if ("${ARCH}" STREQUAL "")
+  set (ARCH "x86/32")
+endif("${ARCH}" STREQUAL "")
+MESSAGE("-- Target architecture: ${ARCH}")
+
+if ("${BIN_DIR_PREFIX}" STREQUAL "")
+  SET (BIN_DIR_PREFIX "../")
+endif ("${BIN_DIR_PREFIX}" STREQUAL "")
+
+if ("${BIN_DIR_NAME}" STREQUAL "")
+  SET (BIN_DIR_NAME "sweb-bin")
+endif ("${BIN_DIR_NAME}" STREQUAL "")
+
+if ("${DOC_DIR}" STREQUAL "")
+  SET (DOC_DIR "..\\/sweb-docs")
+endif ("${DOC_DIR}" STREQUAL "")
 unset(CMAKE_CROSSCOMPILING)
 if(APPLE OR WIN32)
   set(CMAKE_CROSSCOMPILING 1)
@@ -11,8 +29,6 @@ endif(APPLE OR WIN32)
 include(arch/${ARCH}/CMakeLists.compiler)
 
 project(sweb)
-
-include(MakeOptions)
 
 string(REPLACE "/" ";" ARCH_LIST ${ARCH})
 string(REPLACE "/" "_" ARCH_ESC ${ARCH})
@@ -30,16 +46,11 @@ find_program(DOXYGEN_EXECUTABLE doxygen)
 find_program(OBJCOPY_EXECUTABLE objcopy)
 
 #Initialize CMake output directories
-set(CMAKE_BINARY_DIR "${BIN_DIR_PREFIX}${BIN_DIR_NAME}")
-if(PROJECT_SOURCE_DIR STREQUAL PROJECT_BINARY_DIR)
-  set(PROJECT_BINARY_DIR "${PROJECT_BINARY_DIR}/${BIN_DIR_PREFIX}${BIN_DIR_NAME}")
-endif(PROJECT_SOURCE_DIR STREQUAL PROJECT_BINARY_DIR)
 set(UTILS_DIR "${PROJECT_BINARY_DIR}/../sweb/utils")
 set(LIBRARY_OUTPUT_PATH  "${PROJECT_BINARY_DIR}/lib")
 set(EXECUTABLE_OUTPUT_PATH "${PROJECT_BINARY_DIR}")
 
 include(arch/${ARCH}/CMakeLists.include)
-cmake_minimum_required(VERSION 2.8)
 
 if(CMAKE_CROSSCOMPILING)
   set(CMAKE_CROSS_COMPILE_FLAGS -G "Unix Makefiles")
@@ -86,6 +97,8 @@ MACRO(ADD_PROJECT_LIBRARY LIBRARY_NAME)
 	find_asm_files(asm_source)
 
 	asm2obj(asm_objs ${asm_source})
+	
+	arch2obj(arch_objs)
 
 	file(GLOB source_files ${SOURCE_WILDCARDS})
 
@@ -99,6 +112,10 @@ MACRO(ADD_PROJECT_LIBRARY LIBRARY_NAME)
 		set(library_files ${library_files} ${asm_objs})
 	endif(asm_objs)
 
+  if(arch_objs)
+    set(library_files ${library_files} ${arch_objs})
+  endif(arch_objs)
+
 	if(library_files)
 		add_library(${LIBRARY_NAME} ${library_files})
 		set(ENV{LIBRARY_NAMES} "$ENV{LIBRARY_NAMES};${LIBRARY_NAME}")
@@ -108,15 +125,6 @@ ENDMACRO(ADD_PROJECT_LIBRARY)
 set (SOURCE_WILDCARDS *.cpp *.c *.tcpp *.S)
 set (ASM_WILDCARDS *.s)
 set (INFO_FILE info.file)
-
-
-if(NOT BIN_DIR_PREFIX)
-	message(FATAL_ERROR "BIN_DIR_PREFIX not set, check MakeOptions file")
-endif(NOT BIN_DIR_PREFIX)
-
-if(NOT BIN_DIR_NAME)
-	message(FATAL_ERROR "BIN_DIR_NAME not set, check MakeOptions file")
-endif(NOT BIN_DIR_NAME)
 
 set(LIBRARY_FILENAMES)
 
@@ -166,7 +174,7 @@ endforeach(file)
 #Custom Command: Outputs kernel_image
 #Executes the linker command after all libraries where build successfully
 add_custom_command (OUTPUT kernel_image
-	DEPENDS ${FINAL_LIB_NAMES} sweb-img-util
+	DEPENDS ${FINAL_LIB_NAMES} exe2minixfs
 	COMMAND ${LD_EXECUTABLE} ${LD_ARGUMENT}
   ${KERNEL_IMAGE_OBJCOPY}
 	WORKING_DIRECTORY ${LIBRARY_OUTPUT_PATH}
@@ -205,10 +213,7 @@ add_custom_command (OUTPUT hdd_image
 #Custom Command: Writes helper files to temp file structure
 add_custom_command (OUTPUT helper_files
 	DEPENDS hdd_image
-	COMMAND cp "${CMAKE_SOURCE_DIR}/utils/images/menu.lst.hda" "./temp/boot/grub/menu.lst"
-	COMMAND	cp "${CMAKE_SOURCE_DIR}/utils/images/SWEB.vmdk" "./"
-	COMMAND cp "${CMAKE_SOURCE_DIR}/utils/images/sweb.vmx" "./"
-	COMMAND cp "${CMAKE_SOURCE_DIR}/utils/images/nvram" "./"
+	COMMAND cp "${CMAKE_SOURCE_DIR}/utils/images/menu.lst" "./temp/boot/grub/menu.lst"
 
 	WORKING_DIRECTORY ${PROJECT_BINARY_DIR}
 	COMMENT "Copying helper files..."
@@ -216,20 +221,20 @@ add_custom_command (OUTPUT helper_files
 
 #Custom Command: invoke exe2minixfs and copy the temp dir to our hd image
 add_custom_command (OUTPUT copy_to_image
-	DEPENDS helper_files sweb-img-util
-	COMMAND ./sweb-img-util -x SWEB-flat.vmdk 0 ./kernel.x boot/kernel.x ./temp/boot/grub/menu.lst boot/grub/menu.lst
-	COMMAND rm -fR temp
+  DEPENDS helper_files exe2minixfs
+  COMMAND ./exe2minixfs SWEB-flat.vmdk 32256 ./temp/boot/grub/menu.lst /boot/grub/menu.lst ./kernel.x /boot/kernel.x
+  COMMAND rm -R temp
 
-	WORKING_DIRECTORY ${PROJECT_BINARY_DIR}
-	COMMENT "Copying files to image..."
-	)
+  WORKING_DIRECTORY ${PROJECT_BINARY_DIR}
+  COMMENT "Copying files to image..."
+  )
 
 #Custom Command: invoke exe2minixfs and copy all userspace programs to our hd image second partition
 add_custom_command (OUTPUT userspace_to_image
 	DEPENDS hdd_image ${FINAL_USERSPACE_NAMES}
 	COMMAND mkdir -p userspace/data
   COMMAND cp -f ${CMAKE_SOURCE_DIR}/userspace/data/* ${PROJECT_BINARY_DIR}/userspace/data
- 	COMMAND ./sweb-img-util -x SWEB-flat.vmdk 1 ${MINIXFS_ARGUMENT}
+  COMMAND ./exe2minixfs SWEB-flat.vmdk 10321920 ${MINIXFS_ARGUMENT}
 	WORKING_DIRECTORY ${PROJECT_BINARY_DIR}
 	COMMENT "Copying userspace programs to image..."
 	)
@@ -306,73 +311,60 @@ add_custom_target(rungdb
 #Custom target: make mrproper
 #Makes really clean (except for the object files)
 add_custom_target(mrproper
+  COMMAND make clean
 	COMMAND ${PROJECT_SOURCE_DIR}/utils/prompt.sh "rm -fR ${PROJECT_BINARY_DIR}/*: remove all arguments recursively [Y/n]? "
 	COMMAND rm -fR ${PROJECT_BINARY_DIR}/* || true
-  COMMAND cmake ${PROJECT_SOURCE_DIR} ${CMAKE_CROSS_COMPILE_FLAGS}
+  COMMAND cmake -DARCH=${ARCH} ${PROJECT_SOURCE_DIR} ${CMAKE_CROSS_COMPILE_FLAGS}
 	)
 
+
 #Custom target: make x86_32
-#Changes MakeOptions ARCH setting to x86_32
 add_custom_target(x86_32
-        COMMENT "sed -i 's/SET (ARCH .*/SET (ARCH x86/32)/' ${PROJECT_SOURCE_DIR}/MakeOptions"
-        COMMAND sed -i "s/SET \\(ARCH .*/SET \\(ARCH x86\\\\/32\\)/" ${PROJECT_SOURCE_DIR}/MakeOptions
-        COMMAND make mrproper
-        )
-
-#Custom target: make x86_32_only
-#Changes MakeOptions ARCH setting to x86_32 AND REMOVE ALL other architectures
-add_custom_target(x86_32_only
-        COMMENT "rm -rf ${PROJECT_SOURCE_DIR}/arch/arm ${PROJECT_SOURCE_DIR}/arch/xen ${PROJECT_SOURCE_DIR}/arch/x86/64 ${PROJECT_SOURCE_DIR}/arch/x86/32/pae"
-        COMMAND rm -rf ${PROJECT_SOURCE_DIR}/arch/arm ${PROJECT_SOURCE_DIR}/arch/xen ${PROJECT_SOURCE_DIR}/arch/x86/64 ${PROJECT_SOURCE_DIR}/arch/x86/32/pae
-        COMMAND make x86_32
+        COMMAND ${PROJECT_SOURCE_DIR}/utils/prompt.sh "rm -fR ${PROJECT_BINARY_DIR}/*: remove all arguments recursively [Y/n]? "
+        COMMAND rm -fR ${PROJECT_BINARY_DIR}/* || true
+        COMMAND cmake -DARCH=x86/32 ${PROJECT_SOURCE_DIR} ${CMAKE_CROSS_COMPILE_FLAGS}
         )
 
 #Custom target: make x86_32_pae
-#Custom target: make x86_32_pae
-#Changes MakeOptions ARCH setting to x86_32_pae
 add_custom_target(x86_32_pae
-        COMMENT "sed -i 's/SET (ARCH .*/SET (ARCH x86/32/pae)/' ${PROJECT_SOURCE_DIR}/MakeOptions"
-        COMMAND sed -i "s/SET \\(ARCH .*/SET \\(ARCH x86\\\\/32\\\\/pae\\)/" ${PROJECT_SOURCE_DIR}/MakeOptions
-        COMMAND make mrproper
+        COMMAND ${PROJECT_SOURCE_DIR}/utils/prompt.sh "rm -fR ${PROJECT_BINARY_DIR}/*: remove all arguments recursively [Y/n]? "
+        COMMAND rm -fR ${PROJECT_BINARY_DIR}/* || true
+        COMMAND cmake -DARCH=x86/32/pae ${PROJECT_SOURCE_DIR} ${CMAKE_CROSS_COMPILE_FLAGS}
         )
 
 #Custom target: make x86_64
-#Changes MakeOptions ARCH setting to x86_64
 add_custom_target(x86_64
-        COMMENT "sed -i 's/SET (ARCH .*/SET (ARCH x86/64)/' ${PROJECT_SOURCE_DIR}/MakeOptions"
-        COMMAND sed -i "s/SET \\(ARCH .*/SET \\(ARCH x86\\\\/64\\)/" ${PROJECT_SOURCE_DIR}/MakeOptions
-        COMMAND make mrproper
+        COMMAND ${PROJECT_SOURCE_DIR}/utils/prompt.sh "rm -fR ${PROJECT_BINARY_DIR}/*: remove all arguments recursively [Y/n]? "
+        COMMAND rm -fR ${PROJECT_BINARY_DIR}/* || true
+        COMMAND cmake -DARCH=x86/64 ${PROJECT_SOURCE_DIR} ${CMAKE_CROSS_COMPILE_FLAGS}
         )
 
 #Custom target: make arm_icp
-#Changes MakeOptions ARCH setting to arm_icp
 add_custom_target(arm_icp
-        COMMENT "sed -i 's/SET (ARCH .*/SET (ARCH arm/integratorcp)/' ${PROJECT_SOURCE_DIR}/MakeOptions"
-        COMMAND sed -i "s/SET \\(ARCH .*/SET \\(ARCH arm\\\\/integratorcp\\)/" ${PROJECT_SOURCE_DIR}/MakeOptions
-        COMMAND make mrproper
+        COMMAND ${PROJECT_SOURCE_DIR}/utils/prompt.sh "rm -fR ${PROJECT_BINARY_DIR}/*: remove all arguments recursively [Y/n]? "
+        COMMAND rm -fR ${PROJECT_BINARY_DIR}/* || true
+        COMMAND cmake -DARCH=arm/integratorcp ${PROJECT_SOURCE_DIR} ${CMAKE_CROSS_COMPILE_FLAGS}
         )
 
 #Custom target: make arm_verdex
-#Changes MakeOptions ARCH setting to arm_verdex
 add_custom_target(arm_verdex
-        COMMENT "sed -i 's/SET (ARCH .*/SET (ARCH arm/verdex)/' ${PROJECT_SOURCE_DIR}/MakeOptions"
-        COMMAND sed -i "s/SET \\(ARCH .*/SET \\(ARCH arm\\\\/verdex\\)/" ${PROJECT_SOURCE_DIR}/MakeOptions
-        COMMAND make mrproper
+        COMMAND ${PROJECT_SOURCE_DIR}/utils/prompt.sh "rm -fR ${PROJECT_BINARY_DIR}/*: remove all arguments recursively [Y/n]? "
+        COMMAND rm -fR ${PROJECT_BINARY_DIR}/* || true
+        COMMAND cmake -DARCH=arm/verdex ${PROJECT_SOURCE_DIR} ${CMAKE_CROSS_COMPILE_FLAGS}
         )
 
 #Custom target: make arm_rpi
-#Changes MakeOptions ARCH setting to arm_rpi
 add_custom_target(arm_rpi
-        COMMENT "sed -i 's/SET (ARCH .*/SET (ARCH arm/rpi)/' ${PROJECT_SOURCE_DIR}/MakeOptions"
-        COMMAND sed -i "s/SET \\(ARCH .*/SET \\(ARCH arm\\\\/rpi\\)/" ${PROJECT_SOURCE_DIR}/MakeOptions
-        COMMAND make mrproper
+        COMMAND ${PROJECT_SOURCE_DIR}/utils/prompt.sh "rm -fR ${PROJECT_BINARY_DIR}/*: remove all arguments recursively [Y/n]? "
+        COMMAND rm -fR ${PROJECT_BINARY_DIR}/* || true
+        COMMAND cmake -DARCH=arm/rpi ${PROJECT_SOURCE_DIR} ${CMAKE_CROSS_COMPILE_FLAGS}
         )
 
 #Builds the doxygen documentation
 add_custom_target(doxygen
 	COMMAND mkdir -p \"${PROJECT_SOURCE_DIR}/doc\"
 	COMMAND cp \"${PROJECT_SOURCE_DIR}/utils/sweb.dox\" \"${PROJECT_SOURCE_DIR}/doc/sweb_cmake.dox\"
-	COMMAND sed -i -e 's/\\$$\\[DOC_OUTPUT_DIR\\]$$/${DOC_DIR}/' '${PROJECT_SOURCE_DIR}/doc/sweb_cmake.dox'
+	COMMAND sed -i -e 's/\\$$\\[DOC_OUTPUT_DIR\\]$$/docs/' '${PROJECT_SOURCE_DIR}/doc/sweb_cmake.dox'
 	COMMAND ${DOXYGEN_EXECUTABLE} \"${PROJECT_SOURCE_DIR}/doc/sweb_cmake.dox\"
 	COMMAND rm -f \"${PROJECT_SOURCE_DIR}/doc/sweb_cmake.dox\"
 	COMMENT "Building SWEB documentation"
@@ -382,10 +374,8 @@ add_custom_target(doxygen
 add_custom_target(help
 	COMMAND printf \"\\nBuild target summary:\\n\\n\"
 	COMMAND printf \"<default target>\\tbuild changed files, generate kernel,\\n\\t\\t\\textract hdd image, copy kernel\\n\\t\\t\\tand userspace file to image\\n\"
-	COMMAND printf \"\\nuserspace\\tbuild userspace programs and copy to hdd image\\n\"
 	COMMAND printf \"\\nclean\\t\\tclean up object files\\n\"
 	COMMAND printf \"\\nmrproper\\tdeletes binary dir, cleans up,\\n\\t\\tregenerates all cmake specific files\\n\"
-	COMMAND printf \"\\nremove_cmake\\tremoves all files generated by cmake\\n\"
 	COMMAND printf \"\\nbochs\\t\\truns bochs without gdb\\n\"
 	COMMAND printf \"\\nbochsgdb\\truns bochs, waiting for gdb connection at localhost:1234\\n\"
 	COMMAND printf \"\\nqemu\\t\\truns qemu, without gdb\\n\"
@@ -393,8 +383,6 @@ add_custom_target(help
 	COMMAND printf \"\\nrunddd\\t\\truns ddd, connecting to localhost:1234\\n\"
 	COMMAND printf \"\\nruncgdb\\t\\truns cgdb, connecting to localhost:1234\\n\"
 	COMMAND printf \"\\nrungdb\\t\\truns gdb, connecting to localhost:1234\\n\"
-	COMMAND printf \"\\nsubmit-nogit assignment=<1 or 2> group=<group number, upper case>\\n\\t\\tBuilds a submit package without \\n\\t\\tworrying about git \(EMERGENCY ONLY!\)\\n\"
-	COMMAND printf \"\\ninfo\\t\\toutputs some important system informations\\n\"
 	COMMAND printf \"\\ndoxygen\\t\\tbuilds the html and latex source documentation of SWEB\\n\"
 	COMMAND printf \"\\nhelp\\t\\tshows this target summary\\n\"
 	COMMAND printf \"\\n\\n\"

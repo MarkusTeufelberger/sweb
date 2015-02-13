@@ -1,9 +1,8 @@
-/**
- * @file InterruptUtils.cpp
- *
- */
-
 #include "InterruptUtils.h"
+
+#include "ArchBoardSpecific.h"
+#include "BDManager.h"
+#include "KeyboardManager.h"
 #include "new.h"
 #include "ArchMemory.h"
 #include "ArchThreads.h"
@@ -15,8 +14,6 @@
 #include "Scheduler.h"
 #include "debug_bochs.h"
 
-#include "arch_keyboard_manager.h"
-#include "arch_bd_manager.h"
 #include "panic.h"
 
 #include "Thread.h"
@@ -26,13 +23,6 @@
 #include "Loader.h"
 #include "Syscall.h"
 #include "paging-definitions.h"
-#include "arch_board_specific.h"
-
-//---------------------------------------------------------------------------*/
-
-void InterruptUtils::initialise()
-{
-}
 
 extern uint32* currentStack;
 extern Console* main_console;
@@ -52,12 +42,11 @@ void pageFaultHandler(uint32 address, uint32 type)
          mov %[v], r4\n": [v]"=r" (address));
   }
   debug(PM, "[PageFaultHandler] Address: %x (%s) - currentThread: %x %d:%s, switch_to_userspace_: %d\n",
-      address, type == 0x3 ? "Instruction Fetch" : "Data Access", currentThread, currentThread->getPID(), currentThread->getName(), currentThread->switch_to_userspace_);
+      address, type == 0x3 ? "Instruction Fetch" : "Data Access", currentThread, currentThread->getTID(), currentThread->getName(), currentThread->switch_to_userspace_);
   if (!currentThread->switch_to_userspace_)
   {
     currentThread->printBacktrace(true);
-    ArchThreads::printThreadRegisters(currentThread,0);
-    ArchThreads::printThreadRegisters(currentThread,1);
+    ArchThreads::printThreadRegisters(currentThread,false);
     while(1);
   }
 
@@ -81,8 +70,7 @@ void pageFaultHandler(uint32 address, uint32 type)
     }
   }
 
-  ArchThreads::printThreadRegisters(currentThread,0);
-  ArchThreads::printThreadRegisters(currentThread,1);
+  ArchThreads::printThreadRegisters(currentThread,false);
 
   //save previous state on stack of currentThread
   currentThread->switch_to_userspace_ = false;
@@ -149,12 +137,12 @@ void arch_swi_irq_handler()
     currentThread->switch_to_userspace_ = false;
     currentThreadInfo = currentThread->kernel_arch_thread_info_;
     ArchInterrupts::enableInterrupts();
-    currentThread->user_arch_thread_info_->r0 = Syscall::syscallException(currentThread->user_arch_thread_info_->r4,
-                                                                          currentThread->user_arch_thread_info_->r5,
-                                                                          currentThread->user_arch_thread_info_->r6,
-                                                                          currentThread->user_arch_thread_info_->r7,
-                                                                          currentThread->user_arch_thread_info_->r8,
-                                                                          currentThread->user_arch_thread_info_->r9);
+    currentThread->user_arch_thread_info_->r[0] = Syscall::syscallException(currentThread->user_arch_thread_info_->r[0],
+                                                                          currentThread->user_arch_thread_info_->r[1],
+                                                                          currentThread->user_arch_thread_info_->r[2],
+                                                                          currentThread->user_arch_thread_info_->r[3],
+                                                                          currentThread->user_arch_thread_info_->r[4],
+                                                                          currentThread->user_arch_thread_info_->r[5]);
     ArchInterrupts::disableInterrupts();
     currentThread->switch_to_userspace_ = true;
     currentThreadInfo =  currentThread->user_arch_thread_info_;
@@ -170,9 +158,14 @@ extern "C" void switchTTBR0(uint32);
 
 extern "C" void exceptionHandler(uint32 type)
 {
+  assert(!currentThread || currentThread->stack_[0] == STACK_CANARY);
   debug(A_INTERRUPTS, "InterruptUtils::exceptionHandler: type = %x\n", type);
   assert((currentThreadInfo->cpsr & (0xE0)) == 0);
-  if (type == ARM4_XRQ_IRQ) {
+  if (!currentThread)
+  {
+    Scheduler::instance()->schedule();
+  }
+  else if (type == ARM4_XRQ_IRQ) {
     ArchBoardSpecific::irq_handler();
   }
   else if (type == ARM4_XRQ_SWINT) {
@@ -188,17 +181,17 @@ extern "C" void exceptionHandler(uint32 type)
   }
   else {
     kprintfd("\nCPU Fault type = %x\n",type);
-    ArchThreads::printThreadRegisters(currentThread,0);
-    ArchThreads::printThreadRegisters(currentThread,1);
+    ArchThreads::printThreadRegisters(currentThread,false);
     currentThread->switch_to_userspace_ = false;
     currentThreadInfo = currentThread->kernel_arch_thread_info_;
     ArchInterrupts::enableInterrupts();
     currentThread->kill();
     for(;;);
   }
-//  ArchThreads::printThreadRegisters(currentThread,0);
-//  ArchThreads::printThreadRegisters(currentThread,1);
+//  ArchThreads::printThreadRegisters(currentThread,false);
   assert((currentThreadInfo->ttbr0 & 0x3FFF) == 0 && (currentThreadInfo->ttbr0 & ~0x3FFF) != 0);
   assert((currentThreadInfo->cpsr & 0xE0) == 0);
+  assert(currentThread->switch_to_userspace_ == 0 || (currentThreadInfo->cpsr & 0xF) == 0);
+  assert(!currentThread || currentThread->stack_[0] == STACK_CANARY);
   switchTTBR0(currentThreadInfo->ttbr0);
 }

@@ -34,6 +34,7 @@
 #define sc_rmdir 40
 #define sc_dup 41
 #define sc_pipe 42
+#define sc_pseudols 43
 //....
 #define sc_brk  45
 //....
@@ -56,4 +57,6 @@
 //....
 #define sc_vfork 190
 #define sc_createprocess 191
+
+#define sc_trace 252
 
