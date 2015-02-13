@@ -6,7 +6,11 @@ before_install:
   - sudo apt-get install nasm clang
 #basic build
 script:
+  # create a new directory
+  - cd ..
+  - mkdir build
+  - cd build
   # run clang static analysis while building
   # see http://clang-analyzer.llvm.org/
-  - scan-build cmake .
+  - scan-build cmake ../sweb
   - scan-build make
