@@ -63,8 +63,8 @@ class Terminal : public CharacterDevice
      */
     virtual int32 writeData(uint32 offset, uint32 size, const char*buffer);
 
-    void setForegroundColor(Console::FOREGROUNDCOLORS const &color);
-    void setBackgroundColor(Console::BACKGROUNDCOLORS const &color);
+    void setForegroundColor(Console::CONSOLECOLOR const &color);
+    void setBackgroundColor(Console::CONSOLECOLOR const &color);
 
     /**
      * Reads one character.from the input
@@ -101,6 +101,8 @@ class Terminal : public CharacterDevice
     void clearBuffer();
     void putInBuffer(uint32 key);
 
+    void initTerminalColors(Console::CONSOLECOLOR fg, Console::CONSOLECOLOR bg);
+
     void backspace();
 
     /**
@@ -131,8 +133,6 @@ class Terminal : public CharacterDevice
      */
     void writeInternal(char character);
 
-    void clearScreen();
-    void fullRedraw();
 
     /**
      * Returns the number of the terminal's rows.
@@ -173,6 +173,9 @@ class Terminal : public CharacterDevice
      * @return true if key is a number
      */
     bool isNumber(uint32 key);
+
+    void clearScreen();
+    void fullRedraw();
 
     Console *console_;
     uint32 num_columns_;

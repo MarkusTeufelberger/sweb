@@ -57,20 +57,7 @@ class TextConsole : public Console
      * Scrolls up the console.
      * @pre console should be locked for drawing
      */
-    virtual void consoleScrollUp();
-
-    /**
-     * Not implemented.
-     * @param color ignored.
-     */
-    virtual void consoleSetForegroundColor ( FOREGROUNDCOLORS const &color );
-
-    /**
-     * Not implemented.
-     * @param color ignored.
-     */
-    virtual void consoleSetBackgroundColor ( BACKGROUNDCOLORS const &color );
-
+    virtual void consoleScrollUp(uint8 const &state);
 };
 
 #endif

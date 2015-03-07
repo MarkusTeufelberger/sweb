@@ -85,8 +85,7 @@ bool ArchInterrupts::testIFSet()
 
 void ArchInterrupts::yieldIfIFSet()
 {
-  extern uint32 boot_completed;
-  if (boot_completed && currentThread && testIFSet())
+  if (system_state == RUNNING && currentThread && testIFSet())
   {
     ArchThreads::yield();
   }
@@ -181,5 +180,6 @@ extern "C" void arch_contextSwitch()
   asm("push %[ebp]\n" : : [ebp]"m"(info.ebp));
   asm("pop %%ebp\n"
       "iret" : : "a"(info.eax), "b"(info.ebx), "c"(info.ecx), "d"(info.edx));
+  asm("hlt");
   assert(false);
 }

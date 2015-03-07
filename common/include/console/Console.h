@@ -12,7 +12,7 @@
 #include "Thread.h"
 
 class Terminal;
-extern uint32 boot_completed;
+
 /**
  * @class Console Base Class Console
  */
@@ -26,47 +26,24 @@ class Console : public Thread
     /**
      * enum Console Foregroundcolors
      */
-    enum FOREGROUNDCOLORS
+    enum CONSOLECOLOR
     {
-      FG_BLACK = 0,
-      FG_BLUE,
-      FG_GREEN,
-      FG_CYAN,
-      FG_RED,
-      FG_MAGENTA,
-      FG_BROWN,
-      FG_WHITE,
-      FG_DARK_GREY,
-      FG_BRIGHT_BLUE,
-      FG_BRIGHT_GREEN,
-      FG_BRIGHT_CYAN,
-      FG_PINK,
-      FG_BRIGHT_MAGENTA,
-      FG_YELLOW,
-      FG_BRIGHT_WHITE
-    };
-
-    /**
-     * enum Console Backgroundcolors
-     */
-    enum BACKGROUNDCOLORS
-    {
-      BG_BLACK = 0,
-      BG_BLUE,
-      BG_GREEN,
-      BG_CYAN,
-      BG_RED,
-      BG_MAGENTA,
-      BG_BROWN,
-      BG_WHITE,
-      BG_DARK_GREY,
-      BG_BRIGHT_BLUE,
-      BG_BRIGHT_GREEN,
-      BG_BRIGHT_CYAN,
-      BG_PINK,
-      BG_BRIGHT_MAGENTA,
-      BG_YELLOW,
-      BG_BRIGHT_WHITE
+      BLACK = 0,
+      BLUE,
+      GREEN,
+      CYAN,
+      RED,
+      MAGENTA,
+      BROWN,
+      WHITE,
+      DARK_GREY,
+      BRIGHT_BLUE,
+      BRIGHT_GREEN,
+      BRIGHT_CYAN,
+      PINK,
+      BRIGHT_MAGENTA,
+      YELLOW,
+      BRIGHT_WHITE
     };
 
     /**
@@ -74,8 +51,6 @@ class Console : public Thread
      * @param num_terminals ignored
      * @return Console instance
      */
-    Console(uint32 num_terminals);
-
     Console(uint32 num_terminals, const char *name);
 
     /**
@@ -139,7 +114,7 @@ class Console : public Thread
      */
     bool areLocksFree()
     {
-      return (!boot_completed || (console_lock_.isFree() && locked_for_drawing_ == 0));
+      return (!(system_state == RUNNING) || (console_lock_.isFree() && locked_for_drawing_ == 0));
     }
 
   protected:
@@ -158,9 +133,7 @@ class Console : public Thread
                                        uint8 const &state) =0;
     virtual uint32 consoleGetNumRows() const=0;
     virtual uint32 consoleGetNumColumns() const=0;
-    virtual void consoleScrollUp() =0;
-    virtual void consoleSetForegroundColor(FOREGROUNDCOLORS const &color) =0;
-    virtual void consoleSetBackgroundColor(BACKGROUNDCOLORS const &color) =0;
+    virtual void consoleScrollUp(uint8 const &state) =0;
 
     ustl::list<Terminal *> terminals_;
     Mutex console_lock_;

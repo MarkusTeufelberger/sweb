@@ -6,36 +6,41 @@
 #include "debug.h"
 #include "Scheduler.h"
 #include "ArchInterrupts.h"
+#include "ArchMemory.h"
+#include "PageManager.h"
 #include "kstring.h"
 
-extern uint32 boot_completed;
+KernelMemoryManager kmm;
 
-KernelMemoryManager * KernelMemoryManager::instance_ = 0;
+KernelMemoryManager * KernelMemoryManager::instance_;
+size_t KernelMemoryManager::pm_ready_;
 
 KernelMemoryManager* KernelMemoryManager::instance()
 {
   if (unlikely(!instance_))
   {
-    pointer start_address = ArchCommon::getFreeKernelMemoryStart();
-    pointer end_address = ArchCommon::getFreeKernelMemoryEnd();
-    //start_address will propably be &kernel_end_address defined in linker script
-    //since we don't have memory management before creating the MemoryManager, we use "placement new"
-    instance_ = new ((void*) start_address) KernelMemoryManager(start_address + sizeof(KernelMemoryManager), end_address);
+    assert(false && "you can not use KernelMemoryManager::instance before the PageManager is ready!");
   }
   return instance_;
 }
 
-KernelMemoryManager::KernelMemoryManager(pointer start_address, pointer end_address) :
+KernelMemoryManager::KernelMemoryManager(size_t min_heap_pages, size_t max_heap_pages) :
     lock_("KMM::lock_"), segments_used_(0), segments_free_(0), approx_memory_free_(0)
 {
-  malloc_end_ = end_address;
-  prenew_assert(((end_address - start_address - sizeof(MallocSegment)) & 0xFFFFFFFF80000000) == 0);
-  first_ = new ((void*) start_address) MallocSegment(0, 0, end_address - start_address - sizeof(MallocSegment), false);
+  assert(instance_ == 0);
+  instance_ = this;
+  pointer start_address = ArchCommon::getFreeKernelMemoryStart();
+  prenew_assert(((start_address) % PAGE_SIZE) == 0);
+  base_break_ = start_address;
+  kernel_break_ = start_address + min_heap_pages * PAGE_SIZE;
+  reserved_min_ = min_heap_pages * PAGE_SIZE;
+  reserved_max_ = max_heap_pages * PAGE_SIZE;
+  debug(KMM, "Clearing initial heap pages\n");
+  memset((void*)start_address, 0, min_heap_pages * PAGE_SIZE);
+  first_ = (MallocSegment*)start_address;
+  new ((void*)start_address) MallocSegment(0, 0, min_heap_pages * PAGE_SIZE - sizeof(MallocSegment), false);
   last_ = first_;
-  debug(KMM, "KernelMemoryManager::ctor: bytes avaible: %d \n", end_address - start_address);
-  debug(KMM, "ArchCommon::bzero((pointer) %x, %x,1);\n", (pointer) first_ + sizeof(MallocSegment),
-        end_address - start_address - sizeof(MallocSegment));
-  memset((void*) ((size_t) first_ + sizeof(MallocSegment)), 0, end_address - start_address - sizeof(MallocSegment));
+  debug(KMM, "KernelMemoryManager::ctor, Heap starts at %x and initially ends at %x\n", start_address, start_address + min_heap_pages * PAGE_SIZE);
 }
 
 pointer KernelMemoryManager::allocateMemory(size_t requested_size)
@@ -68,12 +73,13 @@ pointer KernelMemoryManager::private_AllocateMemory(size_t requested_size)
   }
 
   fillSegment(new_pointer, requested_size);
+
   return ((pointer) new_pointer) + sizeof(MallocSegment);
 }
 
 bool KernelMemoryManager::freeMemory(pointer virtual_address)
 {
-  if (virtual_address == 0 || virtual_address < ((pointer) first_) || virtual_address >= malloc_end_)
+  if (virtual_address == 0 || virtual_address < ((pointer) first_) || virtual_address >= kernel_break_)
     return false;
 
   lockKMM();
@@ -145,7 +151,7 @@ pointer KernelMemoryManager::reallocateMemory(pointer virtual_address, size_t ne
       kprintfd("Are we having a memory leak in the kernel??\n");
       kprintfd(
           "This might as well be caused by running too many threads/processes, which partially reside in the kernel.\n");
-      assert(false);
+      prenew_assert(false);
       return 0;
     }
     memcpy((void*) new_address, (void*) virtual_address, m_segment->getSize());
@@ -179,8 +185,23 @@ MallocSegment *KernelMemoryManager::findFreeSegment(size_t requested_size)
 
     current = current->next_;
   }
+  // No free segment found, could we allocate more memory?
+  if(last_->getUsed())
+  {
+    // In this case we have to create a new segment...
+    MallocSegment* new_segment = new ((void*)ksbrk(sizeof(MallocSegment) + requested_size)) MallocSegment(last_, 0, requested_size, 0);
+    last_->next_ = new_segment;
+    last_ = new_segment;
+  }
+  else
+  {
+    // else we just increase the size of the last segment
+    size_t needed_size = requested_size - last_->getSize();
+    ksbrk(needed_size);
+    last_->setSize(requested_size);
+  }
 
-  return 0;
+  return last_;
 }
 
 void KernelMemoryManager::fillSegment(MallocSegment *this_one, size_t requested_size, uint32 zero_check)
@@ -191,17 +212,12 @@ void KernelMemoryManager::fillSegment(MallocSegment *this_one, size_t requested_
   uint32* mem = (uint32*) (this_one + 1);
   if (zero_check)
   {
-    uint32 checked = 0;
     for (uint32 i = 0; i < requested_size / 4; ++i)
     {
-      if (checked)
+      if(unlikely(mem[i] != 0))
       {
-        //kprintfd("%x\n", mem[i]);
-      }
-      else if (mem[i] != 0)
-      {
-        checked = 1;
-        kprintfd("KernelMemoryManager::fillSegment: WARNING: Memory not zero at %x:\n", mem + i);
+        kprintfd("KernelMemoryManager::fillSegment: WARNING: Memory not zero at %x\n", mem + i);
+        mem[i] = 0;
       }
     }
   }
@@ -237,6 +253,7 @@ void KernelMemoryManager::fillSegment(MallocSegment *this_one, size_t requested_
 
 void KernelMemoryManager::freeSegment(MallocSegment *this_one)
 {
+  debug(KMM, "KernelMemoryManager::freeSegment(%x)\n", this_one);
   prenew_assert(this_one != 0);
   prenew_assert(this_one->marker_ == 0xdeadbeef);
 
@@ -258,7 +275,7 @@ void KernelMemoryManager::freeSegment(MallocSegment *this_one)
     if (this_one->prev_->getUsed() == false)
     {
       size_t my_true_size = (
-          (this_one->next_ == 0) ? malloc_end_ - ((pointer) this_one) :
+          (this_one->next_ == 0) ? kernel_break_ - ((pointer) this_one) :
                                    ((pointer) this_one->next_) - ((pointer) this_one));
 
       MallocSegment *previous_one = this_one->prev_;
@@ -285,7 +302,49 @@ void KernelMemoryManager::freeSegment(MallocSegment *this_one)
 
   memset((void*) ((size_t) this_one + sizeof(MallocSegment)), 0, this_one->getSize()); // ease debugging
 
-  if (isDebugEnabled(KMM))
+  // Change break if this is the last segment
+  if(this_one == last_)
+  {
+    if(this_one != first_)
+    {
+      // Default case, there are three sub cases
+      // 1. we can free the whole segment because it is above the reserved minimum
+      // 2. we can not touch the segment because it is below the reserved minimum
+      // 3. we can shrink the size of the segment because a part of it is above the reserved minimum
+      if((size_t)this_one > base_break_ + reserved_min_)
+      {
+        // Case 1
+        prenew_assert(this_one->prev_->marker_ == 0xdeadbeef);
+        this_one->prev_->next_ = 0;
+        last_ = this_one->prev_;
+        ksbrk(-(this_one->getSize() + sizeof(MallocSegment)));
+      }
+      else if((size_t)this_one + sizeof(MallocSegment) + this_one->getSize() <= base_break_ + reserved_min_)
+      {
+        // Case 2
+        // This is easy, just relax and do nothing
+      }
+      else
+      {
+        // Case 3
+        // First calculate the new size of the segment
+        size_t segment_size = (base_break_ + reserved_min_) - ((size_t)this_one + sizeof(MallocSegment));
+        // Calculate how much we have to sbrk
+        ssize_t sub = segment_size - this_one->getSize();
+        ksbrk(sub);
+        this_one->setSize(segment_size);
+      }
+    }
+    else
+    {
+      if((this_one->getSize() - reserved_min_))
+      {
+        ksbrk(-(this_one->getSize() - reserved_min_));
+        this_one->setSize(reserved_min_);
+      }
+    }
+  }
+
   {
     MallocSegment *current = first_;
     while (current != 0)
@@ -311,7 +370,7 @@ bool KernelMemoryManager::mergeWithFollowingFreeSegment(MallocSegment *this_one)
     {
       MallocSegment *next_one = this_one->next_;
       size_t true_next_size = (
-          (next_one->next_ == 0) ? malloc_end_ - ((pointer) next_one) :
+          (next_one->next_ == 0) ? kernel_break_ - ((pointer) next_one) :
                                    ((pointer) next_one->next_) - ((pointer) next_one));
 
       this_one->setSize(this_one->getSize() + true_next_size);
@@ -334,6 +393,66 @@ bool KernelMemoryManager::mergeWithFollowingFreeSegment(MallocSegment *this_one)
   return false;
 }
 
+pointer KernelMemoryManager::ksbrk(ssize_t size)
+{
+  debug(KMM, "KernelMemoryManager::ksbrk(%d)\n", size);
+  prenew_assert(base_break_ <= (size_t)kernel_break_ + size);
+  prenew_assert(reserved_max_ == 0 || ((kernel_break_ - base_break_) + size) <= reserved_max_);
+  debug(KMM, "KernelMemoryManager::ksbrk(%d)\n", size);
+  if(size != 0)
+  {
+    debug(KMM, "KernelMemoryManager::ksbrk(%d)0\n", size);
+    size_t old_brk = kernel_break_;
+    size_t cur_top_vpn = kernel_break_ / PAGE_SIZE;
+    if ((kernel_break_ % PAGE_SIZE) == 0)
+      cur_top_vpn--;
+    kernel_break_ = ((size_t)kernel_break_) + size;
+    size_t new_top_vpn = (kernel_break_ )  / PAGE_SIZE;
+    if ((kernel_break_ % PAGE_SIZE) == 0)
+      new_top_vpn--;
+    debug(KMM, "KernelMemoryManager::ksbrk(%d)1\n", size);
+    if(size > 0)
+    {
+      debug(KMM, "%x != %x\n", cur_top_vpn, new_top_vpn);
+      while(cur_top_vpn != new_top_vpn)
+      {
+        debug(KMM, "%x != %x\n", cur_top_vpn, new_top_vpn);
+        cur_top_vpn++;
+        assert(pm_ready_);
+        size_t new_page = PageManager::instance()->allocPPN();
+        if(unlikely(new_page == 0))
+        {
+          debug(KMM, "KernelMemoryManager::ksbrk(%d)4\n", size);
+          kprintfd("KernelMemoryManager::freeSegment: FATAL ERROR\n");
+          kprintfd("KernelMemoryManager::freeSegment: no more physical memory\n");
+          prenew_assert(new_page != 0);
+        }
+        debug(KMM, "kbsrk: map %x -> %x\n", cur_top_vpn, new_page);
+        memset((void*)ArchMemory::getIdentAddressOfPPN(new_page), 0 , PAGE_SIZE);
+        ArchMemory::mapKernelPage(cur_top_vpn, new_page);
+      }
+
+    }
+    else
+    {
+      debug(KMM, "KernelMemoryManager::ksbrk(%d)7\n", size);
+      while(cur_top_vpn != new_top_vpn)
+      {
+        prenew_assert(pm_ready_);
+        ArchMemory::unmapKernelPage(cur_top_vpn);
+        cur_top_vpn--;
+      }
+    }
+    debug(KMM, "KernelMemoryManager::ksbrk(%d)8\n", size);
+    return old_brk;
+  }
+  else
+  {
+    debug(KMM, "KernelMemoryManager::ksbrk(%d)9\n", size);
+    return kernel_break_;
+  }
+}
+
 Thread* KernelMemoryManager::KMMLockHeldBy()
 {
   return lock_.heldBy();
@@ -341,15 +460,17 @@ Thread* KernelMemoryManager::KMMLockHeldBy()
 
 void KernelMemoryManager::lockKMM()
 {
+  assert(!(system_state == RUNNING) || PageManager::instance()->heldBy() != currentThread);
   lock_.acquire();
 }
 
 void KernelMemoryManager::unlockKMM()
 {
+  assert(!(system_state == RUNNING) || PageManager::instance()->heldBy() != currentThread);
   lock_.release();
 }
 
-SpinLock& KernelMemoryManager::getKMMLock()
+Mutex& KernelMemoryManager::getKMMLock()
 {
   return lock_;
 }

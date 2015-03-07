@@ -12,8 +12,7 @@
 #include "Mutex.h"
 #include "umap.h"
 #include "ustring.h"
-
-extern ustl::map<uint32, ustl::string> symbol_table;
+#include "Lock.h"
 
 ArchThreadInfo *currentThreadInfo;
 Thread *currentThread;
@@ -31,7 +30,6 @@ Scheduler::Scheduler()
 {
   block_scheduling_ = 0;
   ticks_ = 0;
-  // Create and add the cleanup and idle thread
   addNewThread(&cleanup_thread_);
   addNewThread(&idle_thread_);
 }
@@ -56,7 +54,7 @@ uint32 Scheduler::schedule()
       debug(SCHEDULER, "Scheduler::schedule: ERROR: currentThread == previousThread! Either no thread is in state Running or you added the same thread more than once.");
     }
   } while (!currentThread->schedulable());
-  //debug ( SCHEDULER,"Scheduler::schedule: new currentThread is %x %s, switch_userspace:%d\n",currentThread,currentThread ? currentThread->getName() : 0,currentThread ? currentThread->switch_to_userspace_ : 0);
+//  debug ( SCHEDULER,"Scheduler::schedule: new currentThread is %x %s, switch_userspace:%d\n",currentThread,currentThread ? currentThread->getName() : 0,currentThread ? currentThread->switch_to_userspace_ : 0);
 
   uint32 ret = 1;
 
@@ -93,29 +91,9 @@ void Scheduler::sleep()
   yield();
 }
 
-void Scheduler::sleepAndRelease(SpinLock &lock)
-{
-  lockScheduling();
-  currentThread->state_ = Sleeping;
-  lock.release();
-  unlockScheduling();
-  yield();
-}
-
-void Scheduler::sleepAndRelease(Mutex &lock)
-{
-  lock.spinlock_.acquire("in sleepAndRelease()");
-  lockScheduling();
-  lock.spinlock_.release("in sleepAndRelease()");
-  currentThread->state_ = Sleeping;
-  lock.release();
-  unlockScheduling();
-  yield();
-}
-
 void Scheduler::wake(Thread* thread_to_wake)
 {
-  thread_to_wake->state_ = Running;
+  thread_to_wake->state_ = thread_to_wake->isWorker() ? Worker : Running;
 }
 
 void Scheduler::yield()
@@ -225,6 +203,34 @@ static void printUserSpaceTracesHelper()
   Scheduler::instance()->yield();
 }
 
+void Scheduler::printLockingInformation()
+{
+  size_t thread_count;
+  Thread* thread;
+  lockScheduling();
+  kprintfd("\n");
+  debug(LOCK, "Scheduler::printLockingInformation:\n");
+  for (thread_count = 0; thread_count < threads_.size(); ++thread_count)
+  {
+    thread = threads_[thread_count];
+    if(thread->holding_lock_list_ != 0)
+    {
+      Lock::printHoldingList(threads_[thread_count]);
+    }
+  }
+  for (thread_count = 0; thread_count < threads_.size(); ++thread_count)
+  {
+    thread = threads_[thread_count];
+    if(thread->lock_waiting_on_ != 0)
+    {
+      debug(LOCK, "Thread %s (0x%x) is waiting on lock: %s (0x%x).\n", thread->getName(), thread,
+            thread->lock_waiting_on_ ->getName(), thread->lock_waiting_on_ );
+    }
+  }
+  debug(LOCK, "Scheduler::printLockingInformation finished\n");
+  unlockScheduling();
+}
+
 void Scheduler::printUserSpaceTraces()
 {
   lockScheduling();
@@ -248,4 +254,18 @@ void Scheduler::printUserSpaceTraces()
   }
   debug(USERTRACE, "Done scheduling all userspace threads to print a stacktrace\n");
   unlockScheduling();
+}
+
+void Scheduler::sleepAndRelease(Lock &lock)
+{
+  assert(lock.waitersListIsLocked());
+  // push back the current thread onto the waiters list
+  currentThread->lock_waiting_on_ = &lock;
+  lock.pushFrontCurrentThreadToWaitersList();
+
+  lockScheduling();
+  currentThread->state_ = Sleeping;
+  lock.unlockWaitersList();
+  unlockScheduling();
+  yield();
 }

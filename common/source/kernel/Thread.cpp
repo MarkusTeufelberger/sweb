@@ -1,7 +1,3 @@
-/**
- * @file Thread.cpp
- */
-
 #include "Thread.h"
 #include "ArchCommon.h"
 #include "kprintf.h"
@@ -28,24 +24,13 @@ static void ThreadStartHack()
   currentThread->Run();
   currentThread->kill();
   debug(THREAD, "ThreadStartHack: Panic, thread couldn't be killed\n");
-  for (;;)
-    ;
-}
-
-Thread::Thread(const char *name) :
-    kernel_arch_thread_info_(0), user_arch_thread_info_(0), switch_to_userspace_(0), loader_(0), state_(Running),
-    sleeping_on_mutex_(0), tid_(0), my_terminal_(0), working_dir_(0), name_(name)
-{
-  debug(THREAD, "Thread ctor, this is %x; stack is %x\n", this, stack_);
-  debug(THREAD, "sizeof stack is %x; my name: %s\n", sizeof(stack_), name_.c_str());
-  ArchThreads::createThreadInfosKernelThread(kernel_arch_thread_info_, (pointer) &ThreadStartHack,
-                                             getStackStartPointer());
-  stack_[0] = STACK_CANARY; // stack canary / end of stack
+  while(1);
 }
 
 Thread::Thread(FileSystemInfo *working_dir, const char *name) :
     kernel_arch_thread_info_(0), user_arch_thread_info_(0), switch_to_userspace_(0), loader_(0), state_(Running),
-    sleeping_on_mutex_(0), tid_(0), my_terminal_(0), working_dir_(working_dir), name_(name)
+    next_thread_in_lock_waiters_list_(0), lock_waiting_on_(0), holding_lock_list_(0), tid_(0),
+    my_terminal_(0), working_dir_(working_dir), name_(name)
 {
   debug(THREAD, "Thread ctor, this is %x, stack is %x\n", this, stack_);
   debug(THREAD, "sizeof stack is %x; my name: %s\n", sizeof(stack_), name_.c_str());
@@ -57,23 +42,15 @@ Thread::Thread(FileSystemInfo *working_dir, const char *name) :
 
 Thread::~Thread()
 {
-  if (loader_)
-  {
-    debug(THREAD, "~Thread: cleaning up UserspaceAddressSpace (freeing Pages)\n");
-    delete loader_;
-    loader_ = 0;
-  }
+  delete loader_;
+  loader_ = 0;
   debug(THREAD, "~Thread: freeing ThreadInfos\n");
   delete user_arch_thread_info_;
   user_arch_thread_info_ = 0;
   delete kernel_arch_thread_info_;
   kernel_arch_thread_info_ = 0;
-  if (working_dir_)
-  {
-    debug(THREAD, "~Thread deleting fs info\n");
-    delete working_dir_;
-    working_dir_ = 0;
-  }
+  delete working_dir_;
+  working_dir_ = 0;
   debug(THREAD, "~Thread: done (%s)\n", name_.c_str());
   assert(KernelMemoryManager::instance()->KMMLockHeldBy() != this);
 }
@@ -86,9 +63,9 @@ void Thread::kill()
         currentThread, getName(), this);
 
   switch_to_userspace_ = false;
-  state_ = ToBeDestroyed;
 
   Scheduler::instance()->invokeCleanup();
+  state_ = ToBeDestroyed;
 
   if (currentThread == this)
   {
@@ -230,7 +207,7 @@ void Thread::jobDone()
 
 void Thread::waitForNextJob()
 {
-  state_ = Worker;
+  assert(state_ == Worker);
   Scheduler::instance()->yield();
 }
 
@@ -239,8 +216,14 @@ bool Thread::hasWork()
   return jobs_done_ < jobs_scheduled_;
 }
 
+bool Thread::isWorker() const
+{
+  // If it is a worker thread, the thread state may be sleeping.
+  // But in this case, the thread has at least one job scheduled.
+  return (state_ == Worker) || (jobs_scheduled_ > 0);
+}
+
 bool Thread::schedulable()
 {
   return (state_ == Running) || (state_ == Worker && hasWork());
 }
-

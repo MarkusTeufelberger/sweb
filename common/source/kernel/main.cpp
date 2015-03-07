@@ -34,8 +34,7 @@ extern void* kernel_end_address;
 extern Console* main_console;
 
 uint8 boot_stack[0x4000] __attribute__((aligned(0x4000)));
-uint32 boot_completed;
-uint32 we_are_dying;
+SystemState system_state;
 FileSystemInfo* default_working_dir;
 
 extern "C" void initialiseBootTimePaging();
@@ -45,23 +44,16 @@ extern "C" void startup()
 {
   writeLine2Bochs("Removing Boot Time Ident Mapping...\n");
   removeBootTimeIdentMapping();
-  we_are_dying = 0;
-  boot_completed = 0;
-  //extend Kernel Memory here
-  KernelMemoryManager::instance();
-  writeLine2Bochs("Kernel Memory Manager created \n");
-  PageManager::instance();
-  writeLine2Bochs("PageManager created \n");
+  system_state = BOOTING;
 
-  //SerialManager::getInstance()->do_detection( 1 );
+  PageManager::instance();
+  writeLine2Bochs("PageManager and KernelMemoryManager created \n");
 
   main_console = ArchCommon::createConsole(1);
   writeLine2Bochs("Console created \n");
 
   Terminal *term_0 = main_console->getTerminal(0); // add more if you need more...
-
-  term_0->setBackgroundColor(Console::BG_BLACK);
-  term_0->setForegroundColor(Console::FG_GREEN);
+  term_0->initTerminalColors(Console::GREEN, Console::BLACK);
   kprintfd("Init debug printf\n");
   term_0->writeString("This is on term 0, you should see me now\n");
 
@@ -122,20 +114,15 @@ extern "C" void startup()
   ArchInterrupts::enableKBD();
 
   debug(MAIN, "Adding Kernel threads\n");
-
   Scheduler::instance()->addNewThread(main_console);
-
-  Scheduler::instance()->addNewThread(new ProcessRegistry(new FileSystemInfo(*default_working_dir), user_progs) // see user_progs.h
-                                                          );
-
+  Scheduler::instance()->addNewThread(new ProcessRegistry(new FileSystemInfo(*default_working_dir), user_progs /*see user_progs.h*/));
   Scheduler::instance()->printThreadList();
 
   kprintf("Now enabling Interrupts...\n");
-  boot_completed = 1;
+  system_state = RUNNING;
   ArchInterrupts::enableInterrupts();
 
   Scheduler::instance()->yield();
-
   //not reached
   assert(false);
 }

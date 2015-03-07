@@ -34,7 +34,7 @@ MinixFSSuperblock::MinixFSSuperblock(Dentry* s_root, size_t s_dev, uint64 offset
   debug(M_SB, "---creating Storage Manager\n");
   storage_manager_ = new MinixStorageManager(bm_buffer, s_num_inode_bm_blocks_, s_num_zone_bm_blocks_, s_num_inodes_,
                                              s_zones_);
-  if (isDebugEnabled(M_SB))
+  if (M_SB & OUTPUT_ENABLED)
   {
     storage_manager_->printBitmap();
   }
@@ -160,7 +160,7 @@ MinixFSSuperblock::~MinixFSSuperblock()
   s_files_.clear();
   assert(s_files_.empty() == true);
 
-  if (isDebugEnabled(M_SB))
+  if (M_SB & OUTPUT_ENABLED)
   {
     for (auto it : all_inodes_)
       debug(M_SB, "Inode: %p\n", it);
@@ -377,7 +377,7 @@ void MinixFSSuperblock::readBlocks(uint16 block, uint32 num_blocks, char* buffer
   assert(buffer);
 #ifdef EXE2MINIXFS
   fseek((FILE*)s_dev_, offset_ + block * BLOCK_SIZE, SEEK_SET);
-  (fread(buffer, 1, BLOCK_SIZE * num_blocks, (FILE*)s_dev_) == BLOCK_SIZE * num_blocks);
+  assert(fread(buffer, 1, BLOCK_SIZE * num_blocks, (FILE*)s_dev_) == BLOCK_SIZE * num_blocks);
 #else
   BDVirtualDevice* bdvd = BDManager::getInstance()->getDeviceByNumber(s_dev_);
   bdvd->readData(block * bdvd->getBlockSize(), num_blocks * bdvd->getBlockSize(), buffer);
@@ -393,7 +393,7 @@ void MinixFSSuperblock::writeBlocks(uint16 block, uint32 num_blocks, char* buffe
 {
 #ifdef EXE2MINIXFS
   fseek((FILE*)s_dev_, offset_ + block * BLOCK_SIZE, SEEK_SET);
-  (fwrite(buffer, 1, BLOCK_SIZE * num_blocks, (FILE*)s_dev_) == BLOCK_SIZE * num_blocks);
+  assert(fwrite(buffer, 1, BLOCK_SIZE * num_blocks, (FILE*)s_dev_) == BLOCK_SIZE * num_blocks);
 #else
   BDVirtualDevice* bdvd = BDManager::getInstance()->getDeviceByNumber(s_dev_);
   bdvd->writeData(block * bdvd->getBlockSize(), num_blocks * bdvd->getBlockSize(), buffer);

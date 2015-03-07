@@ -7,6 +7,7 @@
 #include "FrameBufferConsole.h"
 #include "backtrace.h"
 #include "Stabs2DebugInfo.h"
+#include "ports.h"
 
 extern void* kernel_end_address;
 
@@ -21,7 +22,7 @@ extern "C" void parseMultibootHeader()
 
   struct multiboot_remainder &orig_mbr = (struct multiboot_remainder &)(*((struct multiboot_remainder*)VIRTUAL_TO_PHYSICAL_BOOT((pointer)&mbr)));
 
-  if (mb_infos && mb_infos->flags & 1<<11)
+  if (mb_infos && (mb_infos->flags & 1<<11))
   {
     struct vbe_mode* mode_info = (struct vbe_mode*)mb_infos->vbe_mode_info;
     orig_mbr.have_vesa_console = 1;
@@ -31,7 +32,7 @@ extern "C" void parseMultibootHeader()
     orig_mbr.vesa_bits_per_pixel = mode_info->bits_per_pixel;
   }
 
-  if (mb_infos && mb_infos->flags & 1<<3)
+  if (mb_infos && (mb_infos->flags & 1<<3))
   {
     module_t * mods = (module_t*)mb_infos->mods_addr;
     for (i=0;i<mb_infos->mods_count;++i)
@@ -49,7 +50,7 @@ extern "C" void parseMultibootHeader()
     orig_mbr.memory_maps[i].used = 0;
   }
 
-  if (mb_infos && mb_infos->flags & 1<<6)
+  if (mb_infos && (mb_infos->flags & 1<<6))
   {
     uint32 mmap_size = sizeof(memory_map);
     uint32 mmap_total_size = mb_infos->mmap_length;
@@ -58,10 +59,17 @@ extern "C" void parseMultibootHeader()
     for (i=0;i<num_maps;++i)
     {
       memory_map * map = (memory_map*)(mb_infos->mmap_addr+mmap_size*i);
-      orig_mbr.memory_maps[i].used = 1;
-      orig_mbr.memory_maps[i].start_address = map->base_addr_low;
-      orig_mbr.memory_maps[i].end_address = map->base_addr_low + map->length_low;
-      orig_mbr.memory_maps[i].type = map->type;
+      if(map->base_addr_high == 0)
+      {
+        orig_mbr.memory_maps[i].used = 1;
+        orig_mbr.memory_maps[i].start_address = map->base_addr_low;
+        orig_mbr.memory_maps[i].end_address = map->base_addr_low + map->length_low;
+        orig_mbr.memory_maps[i].type = map->type;
+      }
+      else
+      {
+        orig_mbr.memory_maps[i].used = 0;
+      }
     }
   }
 }
@@ -188,6 +196,9 @@ uint32 ArchCommon::getUsableMemoryRegion(uint32 region, pointer &start_address, 
 
 Console* ArchCommon::createConsole(uint32 count)
 {
+  // deactivate cursor
+  outportb(0x3d4, 0xa);
+  outportb(0x3d5, 0b00100000);
   if (haveVESAConsole())
     return new FrameBufferConsole(count);
   else

@@ -2,7 +2,8 @@
 #define KERNEL_MEMORY_MANAGER__
 
 #include "new.h"
-#include "SpinLock.h"
+#include "Mutex.h"
+#include "assert.h"
 
 /**
  * @class MallocSegment
@@ -115,22 +116,22 @@ class KernelMemoryManager
      */
     pointer reallocateMemory(pointer virtual_address, size_t new_size);
 
-    /**
-     * called from startup() after the scheduler has been created and just
-     * before the Interrupts are turned on
-     */
-    void startUsingSyncMechanism();
-
-    SpinLock& getKMMLock();
+    Mutex& getKMMLock();
 
     Thread* KMMLockHeldBy();
+
+    KernelMemoryManager() : lock_(0) { assert(false && "dummy constructor - do not use!"); };
+
+  protected:
+    friend class PageManager;
+
+    KernelMemoryManager(size_t min_heap_pages, size_t max_heap_pages);
+
+    static size_t pm_ready_;
+
+    static KernelMemoryManager *instance_;
+
   private:
-    /**
-     * Constructor - private because its a singleton
-     * @param start_address the start address of the memory
-     * @param end_address the end address of the memory
-     */
-    KernelMemoryManager(pointer start_address = (pointer) &kernel_end_address, pointer end_address = 0x80400000);
 
     /**
      * returns a free memory segment of the requested size
@@ -170,21 +171,23 @@ class KernelMemoryManager
      */
     inline pointer private_AllocateMemory(size_t requested_size);
 
+    pointer ksbrk(ssize_t size);
+
     MallocSegment* first_; //first_ must _never_ be NULL
     MallocSegment* last_;
-    pointer malloc_end_;
+    pointer base_break_;
+    pointer kernel_break_;
+    size_t reserved_max_;
+    size_t reserved_min_;
 
     void lockKMM();
     void unlockKMM();
 
-    SpinLock lock_;
+    Mutex lock_;
 
     uint32 segments_used_;
     uint32 segments_free_;
     size_t approx_memory_free_;
-
-    static KernelMemoryManager *instance_;
-
 };
 
 #endif
