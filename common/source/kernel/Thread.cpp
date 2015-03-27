@@ -51,8 +51,14 @@ Thread::~Thread()
   kernel_arch_thread_info_ = 0;
   delete working_dir_;
   working_dir_ = 0;
+  if(unlikely(holding_lock_list_ != 0))
+  {
+    debug(THREAD, "~Thread: ERROR: Thread <%s (%p)> is going to be destroyed, but still holds some locks!\n",
+          getName(), this);
+    Lock::printHoldingList(this);
+    assert(false);
+  }
   debug(THREAD, "~Thread: done (%s)\n", name_.c_str());
-  assert(KernelMemoryManager::instance()->KMMLockHeldBy() != this);
 }
 
 //if the Thread we want to kill, is the currentThread, we better not return
@@ -62,7 +68,7 @@ void Thread::kill()
   debug(THREAD, "kill: Called by <%s (%x)>. Preparing Thread <%s (%x)> for destruction\n", currentThread->getName(),
         currentThread, getName(), this);
 
-  switch_to_userspace_ = false;
+  switch_to_userspace_ = 0;
 
   Scheduler::instance()->invokeCleanup();
   state_ = ToBeDestroyed;
@@ -127,7 +133,7 @@ void Thread::printBacktrace(bool use_stored_registers)
 
   for (int i = 0; i < Count; ++i)
   {
-    char FunctionName[255];
+    char FunctionName[512];
     pointer StartAddr = 0;
     if (kernel_debug_info)
       StartAddr = kernel_debug_info->getFunctionName(CallStack[i], FunctionName);
@@ -168,7 +174,7 @@ void Thread::printUserBacktrace()
 
   for (int i = 0; i < Count; ++i)
   {
-    char FunctionName[255];
+    char FunctionName[512];
     pointer StartAddr = 0;
     if (deb)
       StartAddr = deb->getFunctionName(CallStack[i], FunctionName);

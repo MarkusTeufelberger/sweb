@@ -162,7 +162,7 @@ extern "C" void arch_contextSwitch();
 extern "C" void dummyHandler()
 {
   uint32 saved_switch_to_userspace = currentThread->switch_to_userspace_;
-  currentThread->switch_to_userspace_ = false;
+  currentThread->switch_to_userspace_ = 0;
   currentThreadInfo = currentThread->kernel_arch_thread_info_;
   ArchInterrupts::enableInterrupts();
   kprintfd("DUMMY_HANDLER: Spurious INT\n");
@@ -190,7 +190,6 @@ extern "C" void irqHandler_0()
   //kprintfd("irq0: Going to leave irq Handler 0\n");
   ArchInterrupts::EndOfInterrupt(0);
   arch_contextSwitch();
-  assert(false);
 }
 
 extern "C" void arch_irqHandler_65();
@@ -277,7 +276,7 @@ extern "C" void pageFaultHandler(uint64 address, uint64 error)
 
   //save previous state on stack of currentThread
   uint32 saved_switch_to_userspace = currentThread->switch_to_userspace_;
-  currentThread->switch_to_userspace_ = false;
+  currentThread->switch_to_userspace_ = 0;
   currentThreadInfo = currentThread->kernel_arch_thread_info_;
   ArchInterrupts::enableInterrupts();
 
@@ -376,7 +375,7 @@ extern "C" void irqHandler_15()
 extern "C" void arch_syscallHandler();
 extern "C" void syscallHandler()
 {
-  currentThread->switch_to_userspace_ = false;
+  currentThread->switch_to_userspace_ = 0;
   currentThreadInfo = currentThread->kernel_arch_thread_info_;
   ArchInterrupts::enableInterrupts();
 
@@ -389,7 +388,7 @@ extern "C" void syscallHandler()
                   currentThread->user_arch_thread_info_->r9);
 
   ArchInterrupts::disableInterrupts();
-  currentThread->switch_to_userspace_ = true;
+  currentThread->switch_to_userspace_ = 1;
   currentThreadInfo =  currentThread->user_arch_thread_info_;
   arch_contextSwitch();
 }

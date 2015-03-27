@@ -122,7 +122,7 @@ extern "C" void arch_contextSwitch();
 extern "C" void dummyHandler()
 {
   uint32 saved_switch_to_userspace = currentThread->switch_to_userspace_;
-  currentThread->switch_to_userspace_ = false;
+  currentThread->switch_to_userspace_ = 0;
   currentThreadInfo = currentThread->kernel_arch_thread_info_;
   ArchInterrupts::enableInterrupts();
   kprintfd("DUMMY_HANDLER: Spurious INT\n");
@@ -176,7 +176,7 @@ extern "C" void pageFaultHandler(uint32 address, uint32 error)
     // A word of warning: Due to the way the lookup is performed, we may be
     // returned a wrong function name here! Especially routines residing inside
     // ASM- modules are very likely to be detected incorrectly.
-    char FunctionName[255];
+    char FunctionName[512];
     pointer StartAddr = 0;
     if (kernel_debug_info)
       StartAddr = kernel_debug_info->getFunctionName(currentThread->kernel_arch_thread_info_->eip, FunctionName);
@@ -261,7 +261,8 @@ extern "C" void pageFaultHandler(uint32 address, uint32 error)
   //--------End "just for Debugging"-----------
 
   //save previous state on stack of currentThread
-  currentThread->switch_to_userspace_ = false;
+  uint32 saved_switch_to_userspace = currentThread->switch_to_userspace_;
+  currentThread->switch_to_userspace_ = 0;
   currentThreadInfo = currentThread->kernel_arch_thread_info_;
   ArchInterrupts::enableInterrupts();
 
@@ -284,12 +285,13 @@ extern "C" void pageFaultHandler(uint32 address, uint32 error)
       currentThread->kill();
   }
   ArchInterrupts::disableInterrupts();
-  asm volatile ("movl %cr3, %eax; movl %eax, %cr3;");
-  // only required in PAE mode
-  currentThread->switch_to_userspace_ = true;
-  currentThreadInfo = currentThread->user_arch_thread_info_;
-  arch_contextSwitch();
-  assert(false);
+  asm volatile ("movl %cr3, %eax; movl %eax, %cr3;"); // only required in PAE mode
+  currentThread->switch_to_userspace_ = saved_switch_to_userspace;
+  if (currentThread->switch_to_userspace_)
+  {
+    currentThreadInfo = currentThread->user_arch_thread_info_;
+    arch_contextSwitch();
+  }
 }
 
 extern "C" void arch_irqHandler_1();
@@ -359,7 +361,7 @@ extern "C" void irqHandler_15()
 extern "C" void arch_syscallHandler();
 extern "C" void syscallHandler()
 {
-  currentThread->switch_to_userspace_ = false;
+  currentThread->switch_to_userspace_ = 0;
   currentThreadInfo = currentThread->kernel_arch_thread_info_;
   ArchInterrupts::enableInterrupts();
 
@@ -371,7 +373,7 @@ extern "C" void syscallHandler()
                                                                          currentThread->user_arch_thread_info_->edi);
 
   ArchInterrupts::disableInterrupts();
-  currentThread->switch_to_userspace_ = true;
+  currentThread->switch_to_userspace_ = 1;
   currentThreadInfo = currentThread->user_arch_thread_info_;
   //ArchThreads::printThreadRegisters(currentThread,false);
   arch_contextSwitch();

@@ -43,12 +43,6 @@ void pageFaultHandler(uint32 address, uint32 type)
   }
   debug(PM, "[PageFaultHandler] Address: %x (%s) - currentThread: %x %d:%s, switch_to_userspace_: %d\n",
       address, type == 0x3 ? "Instruction Fetch" : "Data Access", currentThread, currentThread->getTID(), currentThread->getName(), currentThread->switch_to_userspace_);
-  if (!currentThread->switch_to_userspace_)
-  {
-    currentThread->printBacktrace(true);
-    ArchThreads::printThreadRegisters(currentThread,false);
-    while(1);
-  }
 
   if(!address)
     debug(PM, "[PageFaultHandler] Maybe you're dereferencing a null-pointer!\n");
@@ -73,7 +67,8 @@ void pageFaultHandler(uint32 address, uint32 type)
   ArchThreads::printThreadRegisters(currentThread,false);
 
   //save previous state on stack of currentThread
-  currentThread->switch_to_userspace_ = false;
+  uint32 saved_switch_to_userspace = currentThread->switch_to_userspace_;
+  currentThread->switch_to_userspace_ = 0;
   currentThreadInfo = currentThread->kernel_arch_thread_info_;
 
   ArchInterrupts::enableInterrupts();
@@ -96,15 +91,16 @@ void pageFaultHandler(uint32 address, uint32 type)
     currentThread->kill();
   }
   ArchInterrupts::disableInterrupts();
-  currentThread->switch_to_userspace_ = true;
-  currentThreadInfo = currentThread->user_arch_thread_info_;
+  currentThread->switch_to_userspace_ = saved_switch_to_userspace;
+  if (currentThread->switch_to_userspace_)
+    currentThreadInfo = currentThread->user_arch_thread_info_;
 }
 
 void timer_irq_handler()
 {
   static uint32 heart_beat_value = 0;
   const char* clock = "/-\\|";
-  ((FrameBufferConsole*)main_console)->consoleSetCharacter(0,0,clock[heart_beat_value],0);
+  ((FrameBufferConsole*)main_console)->consoleSetCharacter(0,0,clock[heart_beat_value],Console::GREEN);
   heart_beat_value = (heart_beat_value + 1) % 4;
 
   Scheduler::instance()->incTicks();
@@ -134,7 +130,7 @@ void arch_swi_irq_handler()
   }
   else if (swi == 0x0) // syscall
   {
-    currentThread->switch_to_userspace_ = false;
+    currentThread->switch_to_userspace_ = 0;
     currentThreadInfo = currentThread->kernel_arch_thread_info_;
     ArchInterrupts::enableInterrupts();
     currentThread->user_arch_thread_info_->r[0] = Syscall::syscallException(currentThread->user_arch_thread_info_->r[0],
@@ -144,7 +140,7 @@ void arch_swi_irq_handler()
                                                                           currentThread->user_arch_thread_info_->r[4],
                                                                           currentThread->user_arch_thread_info_->r[5]);
     ArchInterrupts::disableInterrupts();
-    currentThread->switch_to_userspace_ = true;
+    currentThread->switch_to_userspace_ = 1;
     currentThreadInfo =  currentThread->user_arch_thread_info_;
   }
   else
@@ -182,7 +178,7 @@ extern "C" void exceptionHandler(uint32 type)
   else {
     kprintfd("\nCPU Fault type = %x\n",type);
     ArchThreads::printThreadRegisters(currentThread,false);
-    currentThread->switch_to_userspace_ = false;
+    currentThread->switch_to_userspace_ = 0;
     currentThreadInfo = currentThread->kernel_arch_thread_info_;
     ArchInterrupts::enableInterrupts();
     currentThread->kill();
