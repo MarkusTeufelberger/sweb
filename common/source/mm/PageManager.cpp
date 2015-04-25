@@ -21,7 +21,7 @@ PageManager* PageManager::instance_ = 0;
 // Please also note that the implementation of *dynamic* KMM is rather new - please report any strange behavior.
 
 // we recommend setting both values to 400 for Assignment 2:
-#define MIN_HEAP_PAGES 1
+#define MIN_HEAP_PAGES 400
 #define MAX_HEAP_PAGES 4096 // 4096 pages, because maximum heap size is 16MiB
 
 PageManager* PageManager::instance()
@@ -86,7 +86,6 @@ PageManager::PageManager() : lock_("PageManager::lock_")
   {
     if ((temp_page_size = ArchMemory::get_PPN_Of_VPN_In_KernelMapping(start_vpn,0,0)) == 0)
       ArchMemory::mapKernelPage(start_vpn,last_free_page--);
-    kprintfd("map %x -> %x\n", start_vpn, last_free_page-1);
     start_vpn++;
   }
   extern KernelMemoryManager kmm;
@@ -206,9 +205,7 @@ uint32 PageManager::allocPPN(uint32 page_size)
 
     if (found == 0)
     {
-      debug(PM, "PageManager::allocPPN: FATAL ERROR!\n");
-      debug(PM, "PageManager::allocPPN: Out of phyiscal pages!\n");
-      assert(found);
+      assert(false && "PageManager::allocPPN: Out of memory / No more free physical pages");
     }
     return found;
   }
@@ -223,8 +220,9 @@ void PageManager::freePPN(uint32 page_number, uint32 page_size)
     lowest_unreserved_page_ = page_number;
   for (uint32 p = page_number; p < (page_number + page_size / PAGE_SIZE); ++p)
   {
-    assert(page_usage_table_->getBit(p))
+    assert(page_usage_table_->getBit(p) && "Double free PPN")
     page_usage_table_->unsetBit(p);
   }
   lock_.release();
 }
+
